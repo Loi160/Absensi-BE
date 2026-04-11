@@ -277,7 +277,6 @@ app.post("/api/absensi", async (req, res) => {
     waktu_istirahat_selesai,
   } = req.body;
 
-  // Menggunakan fungsi WIB
   const { tanggal: today, hari: dayOfWeek } = getWaktuIndo();
   const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
 
@@ -442,18 +441,55 @@ app.post("/api/absensi/manual", async (req, res) => {
   }
 });
 
+// ==========================================
+// --- API RIWAYAT (DIPERBARUI UNTUK MEMUNCULKAN ALPHA) ---
+// ==========================================
 app.get("/api/riwayat/:user_id", async (req, res) => {
-  const { data: absensi } = await supabase
-    .from("absensi")
-    .select("*")
-    .eq("user_id", req.params.user_id)
-    .order("tanggal", { ascending: false });
-  const { data: perizinan } = await supabase
-    .from("perizinan")
-    .select("*")
-    .eq("user_id", req.params.user_id)
-    .order("created_at", { ascending: false });
-  res.status(200).json({ absensi: absensi || [], perizinan: perizinan || [] });
+  const user_id = req.params.user_id;
+
+  try {
+    const { data: user } = await supabase.from("users").select("*, cabang(nama)").eq("id", user_id).single();
+    const { data: absensi } = await supabase.from("absensi").select("*").eq("user_id", user_id).order("tanggal", { ascending: false });
+    const { data: perizinan } = await supabase.from("perizinan").select("*").eq("user_id", user_id).order("created_at", { ascending: false });
+
+    // Logika menyisipkan status Alpha untuk 30 hari ke belakang
+    const { obj: todayObj, tanggal: todayStr } = getWaktuIndo();
+    const startObj = new Date(todayObj);
+    startObj.setDate(todayObj.getDate() - 30);
+    
+    let syntheticAlpha = [];
+    const isPusat = user?.cabang?.nama?.toLowerCase().includes("amaga") || user?.cabang?.nama?.toLowerCase().includes("pusat") || !user?.cabang_id;
+
+    for (let i = 0; i <= 30; i++) {
+      let d = new Date(startObj);
+      d.setDate(d.getDate() + i);
+      let dStr = d.toISOString().split("T")[0];
+      let dayOfWeek = d.getDay();
+
+      if (dStr >= todayStr) break; // Jangan tampilkan Alpha untuk hari ini/besok
+      if (isPusat && dayOfWeek === 0) continue; // Abaikan hari Minggu untuk pusat
+
+      const adaAbsen = absensi.some((a) => a.tanggal === dStr);
+      const adaIzin = perizinan.some((p) => p.status_approval === 'Disetujui' && dStr >= p.tanggal_mulai && dStr <= p.tanggal_selesai);
+
+      if (!adaAbsen && !adaIzin) {
+        syntheticAlpha.push({
+          id: `alpha_${dStr}`,
+          user_id: user_id,
+          tanggal: dStr,
+          waktu_masuk: null,
+          waktu_pulang: null,
+          status_kehadiran: "ALPHA",
+          is_alpha: true 
+        });
+      }
+    }
+
+    const allAbsensi = [...(absensi || []), ...syntheticAlpha];
+    res.status(200).json({ absensi: allAbsensi, perizinan: perizinan || [] });
+  } catch (err) {
+    res.status(500).json({ message: "Gagal mengambil riwayat" });
+  }
 });
 
 app.post("/api/perizinan", async (req, res) => {
@@ -554,8 +590,11 @@ app.get("/api/laporan", async (req, res) => {
       const totalJamLembur = Math.floor(totalMenitLembur / 60);
 
       let alphaCount = 0;
+      let alphaDates = []; // Menyimpan detail tanggal Alpha
+
       dateList.forEach((d) => {
-        if (isPusat && d.dayOfWeek === 0) return;
+        if (d.dateStr >= todayStr) return;
+        if (isPusat && d.dayOfWeek === 0) return; 
 
         const adaAbsen = userAbsen.some((a) => a.tanggal === d.dateStr);
         const adaIzin = userIzin.some(
@@ -564,6 +603,10 @@ app.get("/api/laporan", async (req, res) => {
 
         if (!adaAbsen && !adaIzin) {
           alphaCount++;
+          alphaDates.push({
+            tanggal: d.dateStr,
+            keterangan: "Tidak ada catatan absensi atau perizinan (Tanpa Keterangan)."
+          });
         }
       });
 
@@ -589,6 +632,7 @@ app.get("/api/laporan", async (req, res) => {
         alpha: alphaCount.toString(),
         rawAbsensi: userAbsen,
         rawPerizinan: userIzin,
+        rawAlpha: alphaDates // Mengirim array tanggal Alpha ke Frontend
       };
     });
     res.status(200).json(laporanRekap);
@@ -655,7 +699,7 @@ app.get("/api/dashboard/stats", async (req, res) => {
       let dayOfWeek = d.getDay();
       const adjustedIndex = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
 
-      if (dStr > todayStr) break;
+      if (dStr >= todayStr) break;
 
       users.forEach((user) => {
         const isPusat =
