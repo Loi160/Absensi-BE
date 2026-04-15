@@ -103,86 +103,51 @@ app.get("/api/cabang", async (req, res) => {
 app.post("/api/cabang", async (req, res) => {
   try {
     let payload = { ...req.body };
-    if (payload.keterlambatan)
-      payload.keterlambatan = parseInt(payload.keterlambatan, 10);
+    if (payload.keterlambatan) payload.keterlambatan = parseInt(payload.keterlambatan, 10);
     if (payload.parent_id) payload.parent_id = parseInt(payload.parent_id, 10);
-    if (payload.radius_toleransi)
-      payload.radius_toleransi = parseInt(payload.radius_toleransi, 10);
+    if (payload.radius_toleransi) payload.radius_toleransi = parseInt(payload.radius_toleransi, 10);
 
-    const timeFields = [
-      "jam_masuk_weekday",
-      "jam_keluar_weekday",
-      "jam_masuk_weekend",
-      "jam_keluar_weekend",
-      "jam_mulai_lembur",
-      "jam_selesai_lembur",
-    ];
+    const timeFields = ["jam_masuk_weekday", "jam_keluar_weekday", "jam_masuk_weekend", "jam_keluar_weekend", "jam_mulai_lembur", "jam_selesai_lembur"];
     timeFields.forEach((field) => {
-      if (payload[field] && payload[field].length === 5)
-        payload[field] = `${payload[field]}:00`;
+      if (payload[field] && payload[field].length === 5) payload[field] = `${payload[field]}:00`;
     });
 
     const { error } = await supabase.from("cabang").insert([payload]);
-    if (error)
-      return res
-        .status(400)
-        .json({ message: "Gagal menambah cabang", detail: error.message });
+    if (error) return res.status(400).json({ message: "Gagal menambah cabang", detail: error.message });
     res.status(201).json({ message: "Cabang berhasil ditambahkan" });
   } catch (err) {
-    res
-      .status(500)
-      .json({ message: "Gagal menambah cabang", error: err.message });
+    res.status(500).json({ message: "Gagal menambah cabang", error: err.message });
   }
 });
 
 app.put("/api/cabang/:id", async (req, res) => {
   try {
     let payload = { ...req.body };
-    if (payload.keterlambatan)
-      payload.keterlambatan = parseInt(payload.keterlambatan, 10);
+    if (payload.keterlambatan) payload.keterlambatan = parseInt(payload.keterlambatan, 10);
     if (payload.parent_id) payload.parent_id = parseInt(payload.parent_id, 10);
-    if (payload.radius_toleransi)
-      payload.radius_toleransi = parseInt(payload.radius_toleransi, 10);
+    if (payload.radius_toleransi) payload.radius_toleransi = parseInt(payload.radius_toleransi, 10);
 
-    const timeFields = [
-      "jam_masuk_weekday",
-      "jam_keluar_weekday",
-      "jam_masuk_weekend",
-      "jam_keluar_weekend",
-      "jam_mulai_lembur",
-      "jam_selesai_lembur",
-    ];
+    const timeFields = ["jam_masuk_weekday", "jam_keluar_weekday", "jam_masuk_weekend", "jam_keluar_weekend", "jam_mulai_lembur", "jam_selesai_lembur"];
     timeFields.forEach((field) => {
-      if (payload[field] && payload[field].length === 5)
-        payload[field] = `${payload[field]}:00`;
+      if (payload[field] && payload[field].length === 5) payload[field] = `${payload[field]}:00`;
     });
 
-    const { error } = await supabase
-      .from("cabang")
-      .update(payload)
-      .eq("id", req.params.id);
+    const { error } = await supabase.from("cabang").update(payload).eq("id", req.params.id);
     if (error) throw error;
     res.status(200).json({ message: "Data cabang berhasil diubah" });
   } catch (err) {
-    res
-      .status(500)
-      .json({ message: "Gagal mengubah cabang", error: err.message });
+    res.status(500).json({ message: "Gagal mengubah cabang", error: err.message });
   }
 });
 
 app.put("/api/cabang/:id/status", async (req, res) => {
   try {
     const { is_active } = req.body;
-    const { error } = await supabase
-      .from("cabang")
-      .update({ is_active })
-      .eq("id", req.params.id);
+    const { error } = await supabase.from("cabang").update({ is_active }).eq("id", req.params.id);
     if (error) throw error;
     res.status(200).json({ message: "Status cabang berhasil diubah" });
   } catch (err) {
-    res
-      .status(500)
-      .json({ message: "Gagal mengubah status cabang", error: err.message });
+    res.status(500).json({ message: "Gagal mengubah status cabang", error: err.message });
   }
 });
 
@@ -192,10 +157,8 @@ const cleanUserPayload = (body) => {
   delete payload.id;
   delete payload.cabang;
 
-  if (!payload.tanggal_masuk || payload.tanggal_masuk === "")
-    payload.tanggal_masuk = null;
-  if (!payload.tanggal_lahir || payload.tanggal_lahir === "")
-    payload.tanggal_lahir = null;
+  if (!payload.tanggal_masuk || payload.tanggal_masuk === "") payload.tanggal_masuk = null;
+  if (!payload.tanggal_lahir || payload.tanggal_lahir === "") payload.tanggal_lahir = null;
 
   if (payload.cabang_id) {
     payload.cabang_id = parseInt(payload.cabang_id, 10);
@@ -207,10 +170,7 @@ const cleanUserPayload = (body) => {
 };
 
 app.get("/api/karyawan", async (req, res) => {
-  const { data } = await supabase
-    .from("users")
-    .select("*, cabang(nama)")
-    .order("nama", { ascending: true });
+  const { data } = await supabase.from("users").select("*, cabang(nama)").order("nama", { ascending: true });
   res.status(200).json(data || []);
 });
 
@@ -218,48 +178,30 @@ app.post("/api/karyawan", async (req, res) => {
   try {
     const payload = cleanUserPayload(req.body);
     const { error } = await supabase.from("users").insert([payload]);
-    if (error)
-      return res
-        .status(400)
-        .json({ message: "Gagal menambah data", detail: error.message });
+    if (error) return res.status(400).json({ message: "Gagal menambah data", detail: error.message });
     res.status(201).json({ message: "Karyawan berhasil ditambahkan" });
   } catch (err) {
-    res
-      .status(500)
-      .json({ message: "Gagal menambah karyawan", detail: err.message });
+    res.status(500).json({ message: "Gagal menambah karyawan", detail: err.message });
   }
 });
 
 app.put("/api/karyawan/:id", async (req, res) => {
   try {
     const payload = cleanUserPayload(req.body);
-    const { error } = await supabase
-      .from("users")
-      .update(payload)
-      .eq("id", req.params.id);
-    if (error)
-      return res
-        .status(400)
-        .json({ message: "Gagal mengubah data", detail: error.message });
+    const { error } = await supabase.from("users").update(payload).eq("id", req.params.id);
+    if (error) return res.status(400).json({ message: "Gagal mengubah data", detail: error.message });
     res.status(200).json({ message: "Data berhasil diubah" });
   } catch (err) {
-    res
-      .status(500)
-      .json({ message: "Gagal mengubah data", detail: err.message });
+    res.status(500).json({ message: "Gagal mengubah data", detail: err.message });
   }
 });
 
 app.put("/api/karyawan/:id/status", async (req, res) => {
   try {
     const { status } = req.body;
-    const { error } = await supabase
-      .from("users")
-      .update({ status })
-      .eq("id", req.params.id);
+    const { error } = await supabase.from("users").update({ status }).eq("id", req.params.id);
     if (error) throw error;
-    res
-      .status(200)
-      .json({ message: `Status berhasil diubah menjadi ${status}` });
+    res.status(200).json({ message: `Status berhasil diubah menjadi ${status}` });
   } catch (err) {
     res.status(500).json({ message: "Gagal mengubah status karyawan" });
   }
@@ -269,91 +211,43 @@ app.put("/api/karyawan/:id/status", async (req, res) => {
 // --- LOGIKA KALKULASI ABSENSI & LEMBUR ---
 // ==========================================
 app.post("/api/absensi", async (req, res) => {
-  const {
-    user_id,
-    tipe_absen,
-    waktu,
-    foto,
-    waktu_istirahat_mulai,
-    waktu_istirahat_selesai,
-  } = req.body;
+  const { user_id, tipe_absen, waktu, foto, waktu_istirahat_mulai, waktu_istirahat_selesai } = req.body;
 
   const { tanggal: today, hari: dayOfWeek } = getWaktuIndo();
   const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
 
   try {
-    const { data: user } = await supabase
-      .from("users")
-      .select("cabang_id")
-      .eq("id", user_id)
-      .single();
-    const { data: cabang } = await supabase
-      .from("cabang")
-      .select("*")
-      .eq("id", user.cabang_id)
-      .single();
+    const { data: user } = await supabase.from("users").select("cabang_id").eq("id", user_id).single();
+    const { data: cabang } = await supabase.from("cabang").select("*").eq("id", user.cabang_id).single();
 
-    const { data: existing } = await supabase
-      .from("absensi")
-      .select("*")
-      .eq("user_id", user_id)
-      .eq("tanggal", today)
-      .single();
+    const { data: existing } = await supabase.from("absensi").select("*").eq("user_id", user_id).eq("tanggal", today).single();
 
     if (tipe_absen === "Masuk") {
-      if (existing && existing.waktu_masuk)
-        return res
-          .status(400)
-          .json({ message: "Anda sudah melakukan Absen Masuk hari ini." });
+      if (existing && existing.waktu_masuk) return res.status(400).json({ message: "Anda sudah melakukan Absen Masuk hari ini." });
 
       let menit_terlambat = 0;
       if (cabang) {
-        const jamMasukTarget = isWeekend
-          ? cabang.jam_masuk_weekend
-          : cabang.jam_masuk_weekday;
+        const jamMasukTarget = isWeekend ? cabang.jam_masuk_weekend : cabang.jam_masuk_weekday;
         const batasToleransi = cabang.keterlambatan || 0;
         const selisihMsk = hitungSelisihMenit(jamMasukTarget, waktu);
         if (selisihMsk > batasToleransi) menit_terlambat = selisihMsk;
       }
 
-      const { error } = await supabase.from("absensi").insert([
-        {
-          user_id,
-          tanggal: today,
-          waktu_masuk: waktu,
-          foto_masuk: foto,
-          status_kehadiran: "Hadir",
-          menit_terlambat: menit_terlambat,
-        },
-      ]);
+      const { error } = await supabase.from("absensi").insert([{
+        user_id, tanggal: today, waktu_masuk: waktu, foto_masuk: foto, status_kehadiran: "Hadir", menit_terlambat: menit_terlambat,
+      }]);
       if (error) throw error;
     } else if (tipe_absen === "Istirahat") {
-      if (!existing)
-        return res
-          .status(400)
-          .json({ message: "Anda belum Absen Masuk hari ini." });
-      if (existing.waktu_istirahat_mulai)
-        return res
-          .status(400)
-          .json({ message: "Jadwal istirahat sudah diatur sebelumnya." });
+      if (!existing) return res.status(400).json({ message: "Anda belum Absen Masuk hari ini." });
+      if (existing.waktu_istirahat_mulai) return res.status(400).json({ message: "Jadwal istirahat sudah diatur sebelumnya." });
 
-      const { error } = await supabase
-        .from("absensi")
-        .update({
-          waktu_istirahat_mulai,
-          waktu_istirahat_selesai,
-        })
-        .eq("id", existing.id);
+      const { error } = await supabase.from("absensi").update({
+        waktu_istirahat_mulai, waktu_istirahat_selesai,
+      }).eq("id", existing.id);
       if (error) throw error;
     } else if (tipe_absen === "Pulang") {
-      if (!existing || !existing.waktu_masuk)
-        return res
-          .status(400)
-          .json({ message: "Anda belum Absen Masuk hari ini." });
-      if (existing.waktu_pulang)
-        return res
-          .status(400)
-          .json({ message: "Anda sudah Absen Pulang hari ini." });
+      if (!existing || !existing.waktu_masuk) return res.status(400).json({ message: "Anda belum Absen Masuk hari ini." });
+      if (existing.waktu_pulang) return res.status(400).json({ message: "Anda sudah Absen Pulang hari ini." });
 
       let menit_lembur = 0;
       if (cabang) {
@@ -364,32 +258,21 @@ app.post("/api/absensi", async (req, res) => {
         const cekLewatLembur = hitungSelisihMenit(jamMulaiLembur, waktu);
 
         if (cekLewatLembur > 0) {
-          const durasiMaksLembur = hitungSelisihMenit(
-            jamMulaiLembur,
-            jamBatasLembur,
-          );
-          if (cekLewatLembur >= durasiMaksLembur)
-            menit_lembur += durasiMaksLembur;
+          const durasiMaksLembur = hitungSelisihMenit(jamMulaiLembur, jamBatasLembur);
+          if (cekLewatLembur >= durasiMaksLembur) menit_lembur += durasiMaksLembur;
           else menit_lembur += cekLewatLembur;
         }
       }
 
-      const { error } = await supabase
-        .from("absensi")
-        .update({
-          waktu_pulang: waktu,
-          foto_pulang: foto,
-          menit_lembur: menit_lembur,
-        })
-        .eq("id", existing.id);
+      const { error } = await supabase.from("absensi").update({
+        waktu_pulang: waktu, foto_pulang: foto, menit_lembur: menit_lembur,
+      }).eq("id", existing.id);
       if (error) throw error;
     }
 
     res.status(200).json({ message: `Absen ${tipe_absen} berhasil dicatat!` });
   } catch (error) {
-    res
-      .status(500)
-      .json({ message: "Gagal memproses absensi.", detail: error.message });
+    res.status(500).json({ message: "Gagal memproses absensi.", detail: error.message });
   }
 });
 
@@ -399,26 +282,15 @@ app.post("/api/absensi/manual", async (req, res) => {
     let menit_terlambat = 0;
     let menit_lembur = 0;
 
-    const { data: user } = await supabase
-      .from("users")
-      .select("cabang_id")
-      .eq("id", user_id)
-      .single();
-    const { data: cabang } = await supabase
-      .from("cabang")
-      .select("*")
-      .eq("id", user?.cabang_id)
-      .single();
+    const { data: user } = await supabase.from("users").select("cabang_id").eq("id", user_id).single();
+    const { data: cabang } = await supabase.from("cabang").select("*").eq("id", user?.cabang_id).single();
 
     if (cabang && waktu_masuk) {
       const d = new Date(tanggal);
       const isWeekend = d.getDay() === 0 || d.getDay() === 6;
-      const jamMasukTarget = isWeekend
-        ? cabang.jam_masuk_weekend
-        : cabang.jam_masuk_weekday;
+      const jamMasukTarget = isWeekend ? cabang.jam_masuk_weekend : cabang.jam_masuk_weekday;
       const selisihMsk = hitungSelisihMenit(jamMasukTarget, waktu_masuk);
-      if (selisihMsk > (cabang.keterlambatan || 0))
-        menit_terlambat = selisihMsk;
+      if (selisihMsk > (cabang.keterlambatan || 0)) menit_terlambat = selisihMsk;
     }
 
     if (cabang && waktu_pulang) {
@@ -427,45 +299,25 @@ app.post("/api/absensi/manual", async (req, res) => {
       const cekLewat = hitungSelisihMenit(jamMulai, waktu_pulang);
       if (cekLewat > 0) {
         const maks = hitungSelisihMenit(jamMulai, jamSelesai);
-        menit_lembur = cekLewat >= maks ? maks : cekLewat;
+        menit_lembur = (cekLewat >= maks) ? maks : cekLewat;
       }
     }
 
-    const { data: existing } = await supabase
-      .from("absensi")
-      .select("*")
-      .eq("user_id", user_id)
-      .eq("tanggal", tanggal)
-      .single();
+    const { data: existing } = await supabase.from("absensi").select("*").eq("user_id", user_id).eq("tanggal", tanggal).single();
 
     if (existing) {
-      await supabase
-        .from("absensi")
-        .update({
-          waktu_masuk: waktu_masuk || existing.waktu_masuk,
-          waktu_pulang: waktu_pulang || existing.waktu_pulang,
-          is_manual_masuk: true,
-          keterangan_manual: keterangan,
-          menit_terlambat: waktu_masuk
-            ? menit_terlambat
-            : existing.menit_terlambat,
-          menit_lembur: waktu_pulang ? menit_lembur : existing.menit_lembur,
-        })
-        .eq("id", existing.id);
+      await supabase.from("absensi").update({
+        waktu_masuk: waktu_masuk || existing.waktu_masuk,
+        waktu_pulang: waktu_pulang || existing.waktu_pulang,
+        is_manual_masuk: true,
+        keterangan_manual: keterangan,
+        menit_terlambat: waktu_masuk ? menit_terlambat : existing.menit_terlambat,
+        menit_lembur: waktu_pulang ? menit_lembur : existing.menit_lembur,
+      }).eq("id", existing.id);
     } else {
-      await supabase.from("absensi").insert([
-        {
-          user_id,
-          tanggal,
-          waktu_masuk,
-          waktu_pulang,
-          status_kehadiran: "Hadir",
-          is_manual_masuk: true,
-          keterangan_manual: keterangan,
-          menit_terlambat,
-          menit_lembur,
-        },
-      ]);
+      await supabase.from("absensi").insert([{
+        user_id, tanggal, waktu_masuk, waktu_pulang, status_kehadiran: "Hadir", is_manual_masuk: true, keterangan_manual: keterangan, menit_terlambat, menit_lembur
+      }]);
     }
     res.status(200).json({ message: "Absensi manual berhasil disimpan" });
   } catch (err) {
@@ -480,31 +332,16 @@ app.get("/api/riwayat/:user_id", async (req, res) => {
   const user_id = req.params.user_id;
 
   try {
-    const { data: user } = await supabase
-      .from("users")
-      .select("*, cabang(nama)")
-      .eq("id", user_id)
-      .single();
-    const { data: absensi } = await supabase
-      .from("absensi")
-      .select("*")
-      .eq("user_id", user_id)
-      .order("tanggal", { ascending: false });
-    const { data: perizinan } = await supabase
-      .from("perizinan")
-      .select("*")
-      .eq("user_id", user_id)
-      .order("created_at", { ascending: false });
+    const { data: user } = await supabase.from("users").select("*, cabang(nama)").eq("id", user_id).single();
+    const { data: absensi } = await supabase.from("absensi").select("*").eq("user_id", user_id).order("tanggal", { ascending: false });
+    const { data: perizinan } = await supabase.from("perizinan").select("*").eq("user_id", user_id).order("created_at", { ascending: false });
 
     const { obj: todayObj, tanggal: todayStr } = getWaktuIndo();
     const startObj = new Date(todayObj);
     startObj.setDate(todayObj.getDate() - 30);
-
+    
     let syntheticAlpha = [];
-    const isPusat =
-      user?.cabang?.nama?.toLowerCase().includes("amaga") ||
-      user?.cabang?.nama?.toLowerCase().includes("pusat") ||
-      !user?.cabang_id;
+    const isPusat = user?.cabang?.nama?.toLowerCase().includes("amaga") || user?.cabang?.nama?.toLowerCase().includes("pusat") || !user?.cabang_id;
 
     for (let i = 0; i <= 30; i++) {
       let d = new Date(startObj);
@@ -512,16 +349,11 @@ app.get("/api/riwayat/:user_id", async (req, res) => {
       let dStr = d.toISOString().split("T")[0];
       let dayOfWeek = d.getDay();
 
-      if (dStr >= todayStr) break;
-      if (isPusat && dayOfWeek === 0) continue;
+      if (dStr >= todayStr) break; 
+      if (isPusat && dayOfWeek === 0) continue; 
 
       const adaAbsen = absensi.some((a) => a.tanggal === dStr);
-      const adaIzin = perizinan.some(
-        (p) =>
-          p.status_approval === "Disetujui" &&
-          dStr >= p.tanggal_mulai &&
-          dStr <= p.tanggal_selesai,
-      );
+      const adaIzin = perizinan.some((p) => p.status_approval === 'Disetujui' && dStr >= p.tanggal_mulai && dStr <= p.tanggal_selesai);
 
       if (!adaAbsen && !adaIzin) {
         syntheticAlpha.push({
@@ -531,7 +363,7 @@ app.get("/api/riwayat/:user_id", async (req, res) => {
           waktu_masuk: null,
           waktu_pulang: null,
           status_kehadiran: "ALPHA",
-          is_alpha: true,
+          is_alpha: true 
         });
       }
     }
@@ -549,27 +381,17 @@ app.post("/api/perizinan", async (req, res) => {
 });
 
 app.get("/api/perizinan/all", async (req, res) => {
-  const { data } = await supabase
-    .from("perizinan")
-    .select("*, users (*, cabang(nama))")
-    .order("created_at", { ascending: false });
+  const { data } = await supabase.from("perizinan").select("*, users (*, cabang(nama))").order("created_at", { ascending: false });
   res.status(200).json(data || []);
 });
 
 app.put("/api/perizinan/:id/status", async (req, res) => {
-  await supabase
-    .from("perizinan")
-    .update({ status_approval: req.body.status_approval })
-    .eq("id", req.params.id);
+  await supabase.from("perizinan").update({ status_approval: req.body.status_approval }).eq("id", req.params.id);
   res.status(200).json({ message: "Berhasil" });
 });
 
 app.get("/api/manager/perizinan/:cabang_id", async (req, res) => {
-  const { data } = await supabase
-    .from("perizinan")
-    .select("*, users!inner(*, cabang(nama))")
-    .eq("users.cabang_id", req.params.cabang_id)
-    .order("created_at", { ascending: false });
+  const { data } = await supabase.from("perizinan").select("*, users!inner(*, cabang(nama))").eq("users.cabang_id", req.params.cabang_id).order("created_at", { ascending: false });
   res.status(200).json(data || []);
 });
 
@@ -580,7 +402,7 @@ app.get("/api/laporan", async (req, res) => {
   const { role, cabang_id, start_date, end_date } = req.query;
 
   const { obj: todayObj } = getWaktuIndo();
-
+  
   let startStr = start_date;
   let endStr = end_date;
 
@@ -617,84 +439,54 @@ app.get("/api/laporan", async (req, res) => {
   if (stopDate > todayObj) stopDate = todayObj;
 
   while (currDate <= stopDate) {
-    dateList.push({
-      dateStr: currDate.toISOString().split("T")[0],
-      dayOfWeek: currDate.getDay(),
-    });
+    dateList.push({ dateStr: currDate.toISOString().split("T")[0], dayOfWeek: currDate.getDay() });
     currDate.setDate(currDate.getDate() + 1);
   }
 
   try {
-    let userQuery = supabase
-      .from("users")
-      .select("id, nama, nik, cabang_id, cabang(*)");
-    if (role === "managerCabang" && cabang_id)
-      userQuery = userQuery.eq("cabang_id", cabang_id);
+    let userQuery = supabase.from("users").select("id, nama, nik, cabang_id, cabang(*)");
+    if (role === "managerCabang" && cabang_id) userQuery = userQuery.eq("cabang_id", cabang_id);
 
     const { data: users } = await userQuery;
     const { data: absensi } = await supabase.from("absensi").select("*");
-    const { data: perizinan } = await supabase
-      .from("perizinan")
-      .select("*")
-      .eq("status_approval", "Disetujui");
+    const { data: perizinan } = await supabase.from("perizinan").select("*").eq("status_approval", "Disetujui");
 
     const laporanRekap = users.map((user) => {
-      const isPusat =
-        user.cabang?.nama?.toLowerCase().includes("amaga") ||
-        user.cabang?.nama?.toLowerCase().includes("pusat") ||
-        !user.cabang_id;
+      const isPusat = user.cabang?.nama?.toLowerCase().includes("amaga") || user.cabang?.nama?.toLowerCase().includes("pusat") || !user.cabang_id;
 
-      const userAbsen = absensi.filter(
-        (a) =>
-          a.user_id === user.id && a.tanggal >= startStr && a.tanggal <= endStr,
-      );
-      const userIzin = perizinan.filter(
-        (p) =>
-          p.user_id === user.id &&
-          p.tanggal_selesai >= startStr &&
-          p.tanggal_mulai <= endStr,
-      );
+      const userAbsen = absensi.filter((a) => a.user_id === user.id && a.tanggal >= startStr && a.tanggal <= endStr);
+      const userIzin = perizinan.filter((p) => p.user_id === user.id && p.tanggal_selesai >= startStr && p.tanggal_mulai <= endStr);
 
       userAbsen.forEach((a) => {
         if (!a.menit_terlambat && user.cabang && a.waktu_masuk) {
           const d = new Date(a.tanggal);
           const isWknd = d.getDay() === 0 || d.getDay() === 6;
-          const target = isWknd
-            ? user.cabang.jam_masuk_weekend
-            : user.cabang.jam_masuk_weekday;
+          const target = isWknd ? user.cabang.jam_masuk_weekend : user.cabang.jam_masuk_weekday;
           const tol = user.cabang.keterlambatan || 0;
           const selisih = hitungSelisihMenit(target, a.waktu_masuk);
           if (selisih > tol) a.menit_terlambat = selisih;
         }
       });
 
-      const totalKaliTerlambat = userAbsen.filter(
-        (a) => a.menit_terlambat > 0,
-      ).length;
-      const totalMenitLembur = userAbsen.reduce(
-        (sum, a) => sum + (a.menit_lembur || 0),
-        0,
-      );
+      const totalKaliTerlambat = userAbsen.filter((a) => a.menit_terlambat > 0).length;
+      const totalMenitLembur = userAbsen.reduce((sum, a) => sum + (a.menit_lembur || 0), 0);
       const totalJamLembur = Math.floor(totalMenitLembur / 60);
 
       let alphaCount = 0;
-      let alphaDates = [];
+      let alphaDates = []; 
 
       dateList.forEach((d) => {
         if (d.dateStr >= todayStr) return;
-        if (isPusat && d.dayOfWeek === 0) return;
+        if (isPusat && d.dayOfWeek === 0) return; 
 
         const adaAbsen = userAbsen.some((a) => a.tanggal === d.dateStr);
-        const adaIzin = userIzin.some(
-          (p) => d.dateStr >= p.tanggal_mulai && d.dateStr <= p.tanggal_selesai,
-        );
+        const adaIzin = userIzin.some((p) => d.dateStr >= p.tanggal_mulai && d.dateStr <= p.tanggal_selesai);
 
         if (!adaAbsen && !adaIzin) {
           alphaCount++;
           alphaDates.push({
             tanggal: d.dateStr,
-            keterangan:
-              "Tidak ada catatan absensi atau perizinan (Tanpa Keterangan).",
+            keterangan: "Tidak ada catatan absensi atau perizinan (Tanpa Keterangan)."
           });
         }
       });
@@ -705,15 +497,9 @@ app.get("/api/laporan", async (req, res) => {
         nik: user.nik,
         cabang: user.cabang?.nama || "-",
         hadirApp: userAbsen.filter((a) => !a.is_manual_masuk).length.toString(),
-        hadirManual: userAbsen
-          .filter((a) => a.is_manual_masuk)
-          .length.toString(),
-        izin: userIzin
-          .filter((p) => p.kategori === "Izin" && p.jenis_izin !== "Sakit")
-          .length.toString(),
-        sakit: userIzin
-          .filter((p) => p.kategori === "Izin" && p.jenis_izin === "Sakit")
-          .length.toString(),
+        hadirManual: userAbsen.filter((a) => a.is_manual_masuk).length.toString(),
+        izin: userIzin.filter((p) => p.kategori === "Izin" && p.jenis_izin !== "Sakit").length.toString(),
+        sakit: userIzin.filter((p) => p.kategori === "Izin" && p.jenis_izin === "Sakit").length.toString(),
         cuti: userIzin.filter((p) => p.kategori === "Cuti").length.toString(),
         terlambat: totalKaliTerlambat.toString(),
         fimtk: userIzin.filter((p) => p.kategori === "FIMTK").length.toString(),
@@ -721,7 +507,7 @@ app.get("/api/laporan", async (req, res) => {
         alpha: alphaCount.toString(),
         rawAbsensi: userAbsen,
         rawPerizinan: userIzin,
-        rawAlpha: alphaDates,
+        rawAlpha: alphaDates 
       };
     });
     res.status(200).json(laporanRekap);
@@ -734,47 +520,33 @@ app.get("/api/laporan", async (req, res) => {
 // --- STATISTIK DASHBOARD ---
 // ==========================================
 app.get("/api/dashboard/stats", async (req, res) => {
-  const { role, cabang_id, sub_cabang } = req.query;
+  const { role, cabang_id, sub_cabang } = req.query; 
   try {
     let userQuery = supabase.from("users").select("id, cabang(nama)");
-
+    
     if (role === "managerCabang" && cabang_id) {
-      if (
-        sub_cabang &&
-        sub_cabang !== "Semua Sub-Cabang" &&
-        sub_cabang !== "Semua Cabang"
-      ) {
+      if (sub_cabang && sub_cabang !== "Semua Sub-Cabang" && sub_cabang !== "Semua Cabang") {
         userQuery = userQuery.eq("cabang.nama", sub_cabang);
       } else {
         userQuery = userQuery.eq("cabang_id", cabang_id);
       }
     } else if (role === "hrd") {
       if (sub_cabang && sub_cabang !== "Semua Cabang") {
-        userQuery = userQuery.eq("cabang.nama", sub_cabang);
+         userQuery = userQuery.eq("cabang.nama", sub_cabang);
       }
     }
-
+    
     const { data: allUsers } = await userQuery;
-
-    const users =
-      sub_cabang &&
-      sub_cabang !== "Semua Cabang" &&
-      sub_cabang !== "Semua Sub-Cabang"
-        ? allUsers.filter((u) => u.cabang && u.cabang.nama === sub_cabang)
-        : allUsers;
+    
+    const users = sub_cabang && sub_cabang !== "Semua Cabang" && sub_cabang !== "Semua Sub-Cabang" 
+      ? allUsers.filter(u => u.cabang && u.cabang.nama === sub_cabang) 
+      : allUsers;
 
     const userIds = users.map((u) => u.id);
 
     const defaultResponse = {
       totals: { hadir: 0, sakit: 0, izin: 0, cuti: 0, terlambat: 0, alpha: 0 },
-      chart: {
-        hadir: [0, 0, 0, 0, 0, 0, 0],
-        sakit: [0, 0, 0, 0, 0, 0, 0],
-        izin: [0, 0, 0, 0, 0, 0, 0],
-        cuti: [0, 0, 0, 0, 0, 0, 0],
-        terlambat: [0, 0, 0, 0, 0, 0, 0],
-        alpha: [0, 0, 0, 0, 0, 0, 0],
-      },
+      chart: { hadir: [0,0,0,0,0,0,0], sakit: [0,0,0,0,0,0,0], izin: [0,0,0,0,0,0,0], cuti: [0,0,0,0,0,0,0], terlambat: [0,0,0,0,0,0,0], alpha: [0,0,0,0,0,0,0] },
     };
 
     if (userIds.length === 0) return res.status(200).json(defaultResponse);
@@ -782,25 +554,10 @@ app.get("/api/dashboard/stats", async (req, res) => {
     const { tanggal: todayStr } = getWaktuIndo();
     const { tanggal: sixDaysAgoStr, obj: spanDaysAgo } = getWaktuIndo(-6);
 
-    const { data: absensi } = await supabase
-      .from("absensi")
-      .select("*")
-      .in("user_id", userIds)
-      .gte("tanggal", sixDaysAgoStr);
-    const { data: perizinan } = await supabase
-      .from("perizinan")
-      .select("*")
-      .in("user_id", userIds)
-      .eq("status_approval", "Disetujui");
+    const { data: absensi } = await supabase.from("absensi").select("*").in("user_id", userIds).gte("tanggal", sixDaysAgoStr);
+    const { data: perizinan } = await supabase.from("perizinan").select("*").in("user_id", userIds).eq("status_approval", "Disetujui");
 
-    const chart = {
-      hadir: [0, 0, 0, 0, 0, 0, 0],
-      sakit: [0, 0, 0, 0, 0, 0, 0],
-      izin: [0, 0, 0, 0, 0, 0, 0],
-      cuti: [0, 0, 0, 0, 0, 0, 0],
-      terlambat: [0, 0, 0, 0, 0, 0, 0],
-      alpha: [0, 0, 0, 0, 0, 0, 0],
-    };
+    const chart = { hadir: [0,0,0,0,0,0,0], sakit: [0,0,0,0,0,0,0], izin: [0,0,0,0,0,0,0], cuti: [0,0,0,0,0,0,0], terlambat: [0,0,0,0,0,0,0], alpha: [0,0,0,0,0,0,0] };
     let totalAlphaCounter = 0;
 
     for (let i = 0; i <= 6; i++) {
@@ -813,20 +570,11 @@ app.get("/api/dashboard/stats", async (req, res) => {
       if (dStr >= todayStr) break;
 
       users.forEach((user) => {
-        const isPusat =
-          user.cabang?.nama?.toLowerCase().includes("amaga") ||
-          user.cabang?.nama?.toLowerCase().includes("pusat");
+        const isPusat = user.cabang?.nama?.toLowerCase().includes("amaga") || user.cabang?.nama?.toLowerCase().includes("pusat");
         if (isPusat && dayOfWeek === 0) return;
 
-        const adaAbsen = absensi.some(
-          (a) => a.user_id === user.id && a.tanggal === dStr,
-        );
-        const adaIzin = perizinan.some(
-          (p) =>
-            p.user_id === user.id &&
-            dStr >= p.tanggal_mulai &&
-            dStr <= p.tanggal_selesai,
-        );
+        const adaAbsen = absensi.some((a) => a.user_id === user.id && a.tanggal === dStr);
+        const adaIzin = perizinan.some((p) => p.user_id === user.id && dStr >= p.tanggal_mulai && dStr <= p.tanggal_selesai);
 
         if (!adaAbsen && !adaIzin) {
           totalAlphaCounter++;
@@ -836,16 +584,14 @@ app.get("/api/dashboard/stats", async (req, res) => {
     }
 
     absensi.forEach((ab) => {
-      const usr = users.find((u) => u.id === ab.user_id);
+      const usr = users.find(u => u.id === ab.user_id);
       if (!ab.menit_terlambat && usr && usr.cabang && ab.waktu_masuk) {
-        const d = new Date(ab.tanggal);
-        const isWknd = d.getDay() === 0 || d.getDay() === 6;
-        const target = isWknd
-          ? usr.cabang.jam_masuk_weekend
-          : usr.cabang.jam_masuk_weekday;
-        const tol = usr.cabang.keterlambatan || 0;
-        const selisih = hitungSelisihMenit(target, ab.waktu_masuk);
-        if (selisih > tol) ab.menit_terlambat = selisih;
+          const d = new Date(ab.tanggal);
+          const isWknd = d.getDay() === 0 || d.getDay() === 6;
+          const target = isWknd ? usr.cabang.jam_masuk_weekend : usr.cabang.jam_masuk_weekday;
+          const tol = usr.cabang.keterlambatan || 0;
+          const selisih = hitungSelisihMenit(target, ab.waktu_masuk);
+          if (selisih > tol) ab.menit_terlambat = selisih;
       }
 
       const dayIndex = new Date(ab.tanggal).getDay();
@@ -857,12 +603,8 @@ app.get("/api/dashboard/stats", async (req, res) => {
 
     const totals = {
       hadir: absensi.length,
-      sakit: perizinan.filter(
-        (p) => p.kategori === "Izin" && p.jenis_izin === "Sakit",
-      ).length,
-      izin: perizinan.filter(
-        (p) => p.kategori === "Izin" && p.jenis_izin !== "Sakit",
-      ).length,
+      sakit: perizinan.filter((p) => p.kategori === "Izin" && p.jenis_izin === "Sakit").length,
+      izin: perizinan.filter((p) => p.kategori === "Izin" && p.jenis_izin !== "Sakit").length,
       cuti: perizinan.filter((p) => p.kategori === "Cuti").length,
       terlambat: absensi.filter((a) => a.menit_terlambat > 0).length,
       alpha: totalAlphaCounter,
@@ -873,6 +615,7 @@ app.get("/api/dashboard/stats", async (req, res) => {
     res.status(500).json({ message: "Gagal mengambil statistik" });
   }
 });
+
 
 // ==========================================
 // --- API CLEANUP FOTO (PENGHAPUSAN OTOMATIS) ---
@@ -888,88 +631,70 @@ app.delete("/api/cleanup-fotos", async (req, res) => {
       .from("absensi")
       .select("id, foto_masuk, foto_pulang")
       .lt("tanggal", cutoffStr)
-      .or("foto_masuk.not.is.null,foto_pulang.not.is.null");
+      .or('foto_masuk.not.is.null,foto_pulang.not.is.null');
 
     if (fetchErr) throw fetchErr;
     if (!oldAbsensi || oldAbsensi.length === 0) {
-      return res
-        .status(200)
-        .json({ message: "Tidak ada foto usang yang perlu dihapus." });
+      return res.status(200).json({ message: "Tidak ada foto usang yang perlu dihapus." });
     }
 
     let filesToDelete = [];
-
-    oldAbsensi.forEach((a) => {
+    
+    oldAbsensi.forEach(a => {
       if (a.foto_masuk && !a.foto_masuk.includes("Telah Dihapus")) {
-        const parts = a.foto_masuk.split("/");
+        const parts = a.foto_masuk.split('/');
         filesToDelete.push(parts[parts.length - 1]);
       }
       if (a.foto_pulang && !a.foto_pulang.includes("Telah Dihapus")) {
-        const parts = a.foto_pulang.split("/");
+        const parts = a.foto_pulang.split('/');
         filesToDelete.push(parts[parts.length - 1]);
       }
     });
 
     if (filesToDelete.length > 0) {
-      const { error: rmErr } = await supabase.storage
-        .from("foto_absensi")
-        .remove(filesToDelete);
+      const { error: rmErr } = await supabase.storage.from("foto_absensi").remove(filesToDelete);
       if (rmErr) console.error("Gagal hapus fisik foto:", rmErr);
     }
 
     for (const a of oldAbsensi) {
       const updatePayload = {};
-      if (a.foto_masuk && !a.foto_masuk.includes("Telah Dihapus"))
-        updatePayload.foto_masuk =
-          "Telah Dihapus Otomatis (Lebih dari 30 Hari)";
-      if (a.foto_pulang && !a.foto_pulang.includes("Telah Dihapus"))
-        updatePayload.foto_pulang =
-          "Telah Dihapus Otomatis (Lebih dari 30 Hari)";
-
+      if (a.foto_masuk && !a.foto_masuk.includes("Telah Dihapus")) updatePayload.foto_masuk = "Telah Dihapus Otomatis (Lebih dari 30 Hari)";
+      if (a.foto_pulang && !a.foto_pulang.includes("Telah Dihapus")) updatePayload.foto_pulang = "Telah Dihapus Otomatis (Lebih dari 30 Hari)";
+      
       if (Object.keys(updatePayload).length > 0) {
-        await supabase.from("absensi").update(updatePayload).eq("id", a.id);
+         await supabase.from("absensi").update(updatePayload).eq("id", a.id);
       }
     }
 
-    res
-      .status(200)
-      .json({
-        message: `Berhasil membersihkan foto usang dari ${oldAbsensi.length} data absensi.`,
-      });
+    res.status(200).json({ message: `Berhasil membersihkan foto usang dari ${oldAbsensi.length} data absensi.` });
   } catch (err) {
     console.error("Cleanup Error:", err);
-    res
-      .status(500)
-      .json({ message: "Gagal membersihkan foto", detail: err.message });
+    res.status(500).json({ message: "Gagal membersihkan foto", detail: err.message });
   }
 });
+
 
 // ==========================================
 // --- CRON JOB: JALANKAN OTOMATIS JAM 12 MALAM ---
 // ==========================================
 // '0 0 * * *' artinya: Detik 0, Menit 0, Jam 0 (tengah malam), setiap hari.
-cron.schedule(
-  "0 0 * * *",
-  async () => {
-    console.log("Menjalankan Cron Job: Pembersihan Foto Usang (> 30 Hari)...");
-    try {
-      // Karena kita sudah buat fungsinya di API /api/cleanup-fotos, kita bisa langsung memanggil URL backend kita sendiri.
-      // Ganti 'http://localhost:3000' dengan VITE_API_URL jika nanti di-hosting.
-      const apiUrl = process.env.API_URL || "http://localhost:3000";
-      const response = await fetch(`${apiUrl}/api/cleanup-fotos`, {
-        method: "DELETE",
-      });
-      const result = await response.json();
-      console.log("Status Cron Job:", result.message);
-    } catch (err) {
-      console.error("Cron Job Error:", err);
-    }
-  },
-  {
-    scheduled: true,
-    timezone: "Asia/Jakarta", // Set zona waktu ke WIB
-  },
-);
+cron.schedule('0 0 * * *', async () => {
+  console.log('Menjalankan Cron Job: Pembersihan Foto Usang (> 30 Hari)...');
+  try {
+     // Karena kita sudah buat fungsinya di API /api/cleanup-fotos, kita bisa langsung memanggil URL backend kita sendiri.
+     // Ganti 'http://localhost:3000' dengan VITE_API_URL jika nanti di-hosting.
+     const apiUrl = process.env.API_URL || 'http://localhost:3000';
+     const response = await fetch(`${apiUrl}/api/cleanup-fotos`, { method: 'DELETE' });
+     const result = await response.json();
+     console.log('Status Cron Job:', result.message);
+  } catch (err) {
+     console.error('Cron Job Error:', err);
+  }
+}, {
+  scheduled: true,
+  timezone: "Asia/Jakarta" // Set zona waktu ke WIB
+});
+
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
