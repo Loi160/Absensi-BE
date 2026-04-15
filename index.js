@@ -395,14 +395,43 @@ app.get("/api/manager/perizinan/:cabang_id", async (req, res) => {
 });
 
 // ==========================================
-// --- REKAPITULASI LAPORAN (SELF-HEALING) ---
+// --- REKAPITULASI LAPORAN ---
 // ==========================================
 app.get("/api/laporan", async (req, res) => {
   const { role, cabang_id, start_date, end_date } = req.query;
 
-  const { obj: todayObj, tanggal: todayStr } = getWaktuIndo();
-  const endStr = end_date || todayStr;
-  let startStr = start_date || getWaktuIndo(-30).tanggal;
+  const { obj: todayObj } = getWaktuIndo();
+  
+  // --- LOGIKA SIKLUS GAJIAN (TANGGAL 26 s/d 25) JIKA TIDAK ADA FILTER ---
+  let startStr = start_date;
+  let endStr = end_date;
+
+  if (!startStr || !endStr) {
+    const year = todayObj.getFullYear();
+    const month = todayObj.getMonth();
+    const date = todayObj.getDate();
+    let start, end;
+
+    if (date <= 25) {
+      start = new Date(year, month - 1, 26);
+      end = new Date(year, month, 25);
+    } else {
+      start = new Date(year, month, 26);
+      end = new Date(year, month + 1, 25);
+    }
+
+    const fmt = (dt) => {
+      const y = dt.getFullYear();
+      const m = String(dt.getMonth() + 1).padStart(2, "0");
+      const day = String(dt.getDate()).padStart(2, "0");
+      return `${y}-${m}-${day}`;
+    };
+
+    if (!startStr) startStr = fmt(start);
+    if (!endStr) endStr = fmt(end);
+  }
+
+  const todayStr = getWaktuIndo().tanggal;
 
   let dateList = [];
   let currDate = new Date(startStr);
@@ -415,7 +444,6 @@ app.get("/api/laporan", async (req, res) => {
   }
 
   try {
-    // UPDATE: Ambil semua data cabang (*) agar bisa kalkulasi ulang Terlambat
     let userQuery = supabase.from("users").select("id, nama, nik, cabang_id, cabang(*)");
     if (role === "managerCabang" && cabang_id) userQuery = userQuery.eq("cabang_id", cabang_id);
 
@@ -429,7 +457,6 @@ app.get("/api/laporan", async (req, res) => {
       const userAbsen = absensi.filter((a) => a.user_id === user.id && a.tanggal >= startStr && a.tanggal <= endStr);
       const userIzin = perizinan.filter((p) => p.user_id === user.id && p.tanggal_selesai >= startStr && p.tanggal_mulai <= endStr);
 
-      // SELF-HEALING: Kalkulasi ulang Menit Terlambat untuk data lawas yang nilainya 0
       userAbsen.forEach((a) => {
         if (!a.menit_terlambat && user.cabang && a.waktu_masuk) {
           const d = new Date(a.tanggal);
@@ -490,15 +517,31 @@ app.get("/api/laporan", async (req, res) => {
 });
 
 // ==========================================
-// --- STATISTIK DASHBOARD (SELF-HEALING) ---
+// --- STATISTIK DASHBOARD ---
 // ==========================================
 app.get("/api/dashboard/stats", async (req, res) => {
-  const { role, cabang_id } = req.query;
+  const { role, cabang_id, sub_cabang } = req.query; 
   try {
-    let userQuery = supabase.from("users").select("id, cabang(*)"); // Update select cabang(*)
-    if (role === "managerCabang" && cabang_id) userQuery = userQuery.eq("cabang_id", cabang_id);
+    let userQuery = supabase.from("users").select("id, cabang(nama)");
     
-    const { data: users } = await userQuery;
+    if (role === "managerCabang" && cabang_id) {
+      if (sub_cabang && sub_cabang !== "Semua Sub-Cabang" && sub_cabang !== "Semua Cabang") {
+        userQuery = userQuery.eq("cabang.nama", sub_cabang);
+      } else {
+        userQuery = userQuery.eq("cabang_id", cabang_id);
+      }
+    } else if (role === "hrd") {
+      if (sub_cabang && sub_cabang !== "Semua Cabang") {
+         userQuery = userQuery.eq("cabang.nama", sub_cabang);
+      }
+    }
+    
+    const { data: allUsers } = await userQuery;
+    
+    const users = sub_cabang && sub_cabang !== "Semua Cabang" && sub_cabang !== "Semua Sub-Cabang" 
+      ? allUsers.filter(u => u.cabang && u.cabang.nama === sub_cabang) 
+      : allUsers;
+
     const userIds = users.map((u) => u.id);
 
     const defaultResponse = {
@@ -527,7 +570,7 @@ app.get("/api/dashboard/stats", async (req, res) => {
       if (dStr >= todayStr) break;
 
       users.forEach((user) => {
-        const isPusat = user.cabang?.nama?.toLowerCase().includes("amaga") || user.cabang?.nama?.toLowerCase().includes("pusat") || !user.cabang_id;
+        const isPusat = user.cabang?.nama?.toLowerCase().includes("amaga") || user.cabang?.nama?.toLowerCase().includes("pusat");
         if (isPusat && dayOfWeek === 0) return;
 
         const adaAbsen = absensi.some((a) => a.user_id === user.id && a.tanggal === dStr);
@@ -541,7 +584,6 @@ app.get("/api/dashboard/stats", async (req, res) => {
     }
 
     absensi.forEach((ab) => {
-      // SELF-HEALING KETERLAMBATAN
       const usr = users.find(u => u.id === ab.user_id);
       if (!ab.menit_terlambat && usr && usr.cabang && ab.waktu_masuk) {
           const d = new Date(ab.tanggal);
