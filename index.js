@@ -77,6 +77,7 @@ app.post("/api/login", async (req, res) => {
         nama: user.nama,
         role: user.role,
         nik: user.nik,
+        foto_karyawan: user.foto_karyawan,
         cabang_id: user.cabang_id,
         cabangUtama: user.cabang?.nama || "Pusat",
         titik_koordinat: user.cabang?.titik_koordinat || null,
