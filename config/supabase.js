@@ -1,15 +1,11 @@
-import 'dotenv/config';
-import { createClient } from '@supabase/supabase-js';
+import "dotenv/config";
+import { createClient } from "@supabase/supabase-js";
 
 const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_ANON_KEY;
+const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
 
-if (!supabaseUrl) {
-  throw new Error('SUPABASE_URL belum kebaca dari .env');
+if (!supabaseUrl || !supabaseAnonKey) {
+  throw new Error("Missing Supabase configuration. Ensure SUPABASE_URL and SUPABASE_ANON_KEY are set in .env");
 }
 
-if (!supabaseKey) {
-  throw new Error('SUPABASE_ANON_KEY belum kebaca dari .env');
-}
-
-export const supabase = createClient(supabaseUrl, supabaseKey);
+export const supabase = createClient(supabaseUrl, supabaseAnonKey);
