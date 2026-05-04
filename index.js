@@ -9,6 +9,15 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+const ROLE_LABELS = {
+  hrd: "HRD",
+  managerCabang: "Manager Cabang",
+  karyawan: "Karyawan",
+};
+
+const VALID_ROLES = ["hrd", "managerCabang", "karyawan"];
+const VALID_USER_STATUSES = ["Aktif", "Nonaktif"];
+
 const requireRole = (...allowedRoles) => {
   return async (req, res, next) => {
     try {
@@ -37,7 +46,7 @@ const requireRole = (...allowedRoles) => {
           .json({ message: "Session tidak valid. Silakan login ulang." });
       }
 
-      if (user.status === "Nonaktif") {
+      if (user.status !== "Aktif") {
         return res.status(403).json({ message: "Akun sudah nonaktif." });
       }
 
@@ -56,6 +65,22 @@ const requireRole = (...allowedRoles) => {
       });
     }
   };
+};
+
+const getAllowedCabangIdsForManager = async (managerCabangId) => {
+  if (!managerCabangId) return [];
+
+  const { data: subBranches, error } = await supabase
+    .from("cabang")
+    .select("id")
+    .eq("parent_id", managerCabangId);
+
+  if (error) throw error;
+
+  return [
+    managerCabangId,
+    ...(subBranches || []).map((branch) => branch.id),
+  ];
 };
 
 const getIndonesianTime = (offsetDays = 0) => {
@@ -81,8 +106,10 @@ const getIndonesianTime = (offsetDays = 0) => {
 
 const calculateMinutesDifference = (startTime, endTime) => {
   if (!startTime || !endTime) return 0;
+
   const [startHour, startMinute] = startTime.split(":").map(Number);
   const [endHour, endMinute] = endTime.split(":").map(Number);
+
   return endHour * 60 + endMinute - (startHour * 60 + startMinute);
 };
 
@@ -111,12 +138,22 @@ const formatBranchPayload = (body) => {
 
 const sanitizeUserPayload = (body) => {
   const payload = { ...body };
+
   delete payload.id;
   delete payload.cabang;
   delete payload.session_token;
+  delete payload.roleLabel;
 
   payload.tanggal_masuk = payload.tanggal_masuk || null;
   payload.tanggal_lahir = payload.tanggal_lahir || null;
+
+  if (!VALID_ROLES.includes(payload.role)) {
+    payload.role = "karyawan";
+  }
+
+  if (!VALID_USER_STATUSES.includes(payload.status)) {
+    payload.status = "Aktif";
+  }
 
   if (payload.cabang_id) {
     const parsedId = parseInt(payload.cabang_id, 10);
@@ -128,10 +165,119 @@ const sanitizeUserPayload = (body) => {
   return payload;
 };
 
+const validateUserRoleRules = async (payload, currentUserId = null) => {
+  if (!payload.role) {
+    return {
+      valid: false,
+      status: 400,
+      message: "Hak akses wajib dipilih.",
+    };
+  }
+
+  if (!VALID_ROLES.includes(payload.role)) {
+    return {
+      valid: false,
+      status: 400,
+      message: "Hak akses tidak valid.",
+    };
+  }
+
+  if (!VALID_USER_STATUSES.includes(payload.status || "Aktif")) {
+    return {
+      valid: false,
+      status: 400,
+      message: "Status karyawan tidak valid.",
+      detail: "Status hanya boleh Aktif atau Nonaktif.",
+    };
+  }
+
+  if (payload.role === "hrd") {
+    const { data: existingHrd, error } = await supabase
+      .from("users")
+      .select("id, nama, nik")
+      .eq("role", "hrd")
+      .eq("status", "Aktif");
+
+    if (error) throw error;
+
+    const otherActiveHrd = (existingHrd || []).filter(
+      (item) => item.id !== currentUserId,
+    );
+
+    if ((payload.status || "Aktif") === "Aktif" && otherActiveHrd.length > 0) {
+      return {
+        valid: false,
+        status: 400,
+        message: "HRD aktif hanya boleh 1 orang.",
+        detail: `Saat ini sudah ada HRD aktif: ${otherActiveHrd[0].nama} (${otherActiveHrd[0].nik}).`,
+      };
+    }
+  }
+
+  if (payload.role === "managerCabang") {
+    if (!payload.cabang_id) {
+      return {
+        valid: false,
+        status: 400,
+        message: "Manager Cabang wajib ditempatkan pada cabang utama.",
+      };
+    }
+
+    const { data: cabang, error: cabangError } = await supabase
+      .from("cabang")
+      .select("id, nama, parent_id")
+      .eq("id", payload.cabang_id)
+      .single();
+
+    if (cabangError || !cabang) {
+      return {
+        valid: false,
+        status: 400,
+        message: "Cabang untuk Manager Cabang tidak ditemukan.",
+      };
+    }
+
+    if (cabang.parent_id) {
+      return {
+        valid: false,
+        status: 400,
+        message:
+          "Manager Cabang hanya boleh ditempatkan pada cabang utama, bukan sub-cabang.",
+      };
+    }
+
+    const { data: existingManager, error: managerError } = await supabase
+      .from("users")
+      .select("id, nama, nik")
+      .eq("role", "managerCabang")
+      .eq("status", "Aktif")
+      .eq("cabang_id", payload.cabang_id);
+
+    if (managerError) throw managerError;
+
+    const otherManager = (existingManager || []).filter(
+      (item) => item.id !== currentUserId,
+    );
+
+    if ((payload.status || "Aktif") === "Aktif" && otherManager.length > 0) {
+      return {
+        valid: false,
+        status: 400,
+        message: `Cabang ${cabang.nama} sudah memiliki Manager Cabang aktif.`,
+        detail: `Manager aktif saat ini: ${otherManager[0].nama} (${otherManager[0].nik}).`,
+      };
+    }
+  }
+
+  return { valid: true };
+};
+
 const cleanupOldAttendancePhotos = async () => {
   const { dateObject: todayObj } = getIndonesianTime();
+
   const cutoffDate = new Date(todayObj);
   cutoffDate.setDate(cutoffDate.getDate() - 30);
+
   const cutoffStr = cutoffDate.toISOString().split("T")[0];
 
   const { data: staleAttendance, error: fetchErr } = await supabase
@@ -207,7 +353,7 @@ app.post("/api/login", async (req, res) => {
       return res.status(401).json({ message: "Password salah" });
     }
 
-    if (user.status === "Nonaktif") {
+    if (user.status !== "Aktif") {
       return res.status(403).json({
         message: "Akun Anda telah dinonaktifkan. Hubungi HRD.",
       });
@@ -244,6 +390,7 @@ app.post("/api/login", async (req, res) => {
         id: user.id,
         nama: user.nama,
         role: user.role,
+        roleLabel: ROLE_LABELS[user.role] || user.role,
         nik: user.nik,
         foto_karyawan: user.foto_karyawan,
         cabang_id: user.cabang_id,
@@ -256,9 +403,10 @@ app.post("/api/login", async (req, res) => {
       },
     });
   } catch (err) {
-    return res
-      .status(500)
-      .json({ message: "Server Error", detail: err.message });
+    return res.status(500).json({
+      message: "Server Error",
+      detail: err.message,
+    });
   }
 });
 
@@ -266,37 +414,58 @@ app.get(
   "/api/cabang",
   requireRole("hrd", "managerCabang"),
   async (req, res) => {
-    const { data, error } = await supabase
-      .from("cabang")
-      .select("*")
-      .order("id", { ascending: true });
+    try {
+      let query = supabase
+        .from("cabang")
+        .select("*")
+        .order("nama", { ascending: true });
 
-    if (error) {
-      return res
-        .status(500)
-        .json({ message: "Gagal mengambil cabang", detail: error.message });
+      if (req.user.role === "managerCabang") {
+        const allowedCabangIds = await getAllowedCabangIdsForManager(
+          req.user.cabang_id,
+        );
+
+        query = query.in("id", allowedCabangIds);
+      }
+
+      const { data, error } = await query;
+
+      if (error) {
+        return res.status(500).json({
+          message: "Gagal mengambil cabang",
+          detail: error.message,
+        });
+      }
+
+      res.status(200).json(data || []);
+    } catch (err) {
+      res.status(500).json({
+        message: "Gagal mengambil cabang",
+        detail: err.message,
+      });
     }
-
-    res.status(200).json(data || []);
   },
 );
 
 app.post("/api/cabang", requireRole("hrd"), async (req, res) => {
   try {
     const payload = formatBranchPayload(req.body);
+
     const { error } = await supabase.from("cabang").insert([payload]);
 
     if (error) {
-      return res
-        .status(400)
-        .json({ message: "Gagal menambah cabang", detail: error.message });
+      return res.status(400).json({
+        message: "Gagal menambah cabang",
+        detail: error.message,
+      });
     }
 
     res.status(201).json({ message: "Cabang berhasil ditambahkan" });
   } catch (err) {
-    res
-      .status(500)
-      .json({ message: "Gagal menambah cabang", error: err.message });
+    res.status(500).json({
+      message: "Gagal menambah cabang",
+      error: err.message,
+    });
   }
 });
 
@@ -313,9 +482,10 @@ app.put("/api/cabang/:id", requireRole("hrd"), async (req, res) => {
 
     res.status(200).json({ message: "Data cabang berhasil diubah" });
   } catch (err) {
-    res
-      .status(500)
-      .json({ message: "Gagal mengubah cabang", error: err.message });
+    res.status(500).json({
+      message: "Gagal mengubah cabang",
+      error: err.message,
+    });
   }
 });
 
@@ -332,9 +502,10 @@ app.put("/api/cabang/:id/status", requireRole("hrd"), async (req, res) => {
 
     res.status(200).json({ message: "Status cabang berhasil diubah" });
   } catch (err) {
-    res
-      .status(500)
-      .json({ message: "Gagal mengubah status cabang", error: err.message });
+    res.status(500).json({
+      message: "Gagal mengubah status cabang",
+      error: err.message,
+    });
   }
 });
 
@@ -342,69 +513,80 @@ app.get(
   "/api/karyawan",
   requireRole("hrd", "managerCabang"),
   async (req, res) => {
-    let selectFields =
-      "id, nik, nama, role, jabatan, divisi, tempat_lahir, tanggal_lahir, jenis_kelamin, tanggal_masuk, status, alamat, no_telp, cabang_id, foto_karyawan, ktp, kk, skck, sim, sertifikat, dokumen_tambahan, cabang(nama)";
+    try {
+      let selectFields =
+        "id, nik, nama, role, jabatan, divisi, tempat_lahir, tanggal_lahir, jenis_kelamin, tanggal_masuk, status, alamat, no_telp, cabang_id, foto_karyawan, ktp, kk, skck, sim, sertifikat, dokumen_tambahan, cabang(id, nama, parent_id)";
 
-    if (req.user.role === "hrd") {
-      selectFields =
-        "id, nik, password, nama, role, jabatan, divisi, tempat_lahir, tanggal_lahir, jenis_kelamin, tanggal_masuk, status, alamat, no_telp, cabang_id, foto_karyawan, ktp, kk, skck, sim, sertifikat, dokumen_tambahan, cabang(nama)";
-    }
+      if (req.user.role === "hrd") {
+        selectFields =
+          "id, nik, password, nama, role, jabatan, divisi, tempat_lahir, tanggal_lahir, jenis_kelamin, tanggal_masuk, status, alamat, no_telp, cabang_id, foto_karyawan, ktp, kk, skck, sim, sertifikat, dokumen_tambahan, cabang(id, nama, parent_id)";
+      }
 
-    let query = supabase
-      .from("users")
-      .select(selectFields)
-      .order("nama", { ascending: true });
+      let query = supabase
+        .from("users")
+        .select(selectFields)
+        .order("nama", { ascending: true });
 
-    if (req.user.role === "managerCabang") {
-      const { data: subBranches, error: subBranchError } = await supabase
-        .from("cabang")
-        .select("id")
-        .eq("parent_id", req.user.cabang_id);
+      if (req.user.role === "managerCabang") {
+        const allowedCabangIds = await getAllowedCabangIdsForManager(
+          req.user.cabang_id,
+        );
 
-      if (subBranchError) {
+        query = query.in("cabang_id", allowedCabangIds);
+      }
+
+      const { data, error } = await query;
+
+      if (error) {
         return res.status(500).json({
-          message: "Gagal mengambil sub-cabang",
-          detail: subBranchError.message,
+          message: "Gagal mengambil data karyawan",
+          detail: error.message,
         });
       }
 
-      const allowedCabangIds = [
-        req.user.cabang_id,
-        ...(subBranches || []).map((branch) => branch.id),
-      ];
+      const mappedData = (data || []).map((item) => ({
+        ...item,
+        roleLabel: ROLE_LABELS[item.role] || item.role,
+      }));
 
-      query = query.in("cabang_id", allowedCabangIds);
-    }
-
-    const { data, error } = await query;
-
-    if (error) {
-      return res.status(500).json({
+      res.status(200).json(mappedData);
+    } catch (err) {
+      res.status(500).json({
         message: "Gagal mengambil data karyawan",
-        detail: error.message,
+        detail: err.message,
       });
     }
-
-    res.status(200).json(data || []);
   },
 );
 
 app.post("/api/karyawan", requireRole("hrd"), async (req, res) => {
   try {
     const payload = sanitizeUserPayload(req.body);
+
+    const roleCheck = await validateUserRoleRules(payload);
+
+    if (!roleCheck.valid) {
+      return res.status(roleCheck.status || 400).json({
+        message: roleCheck.message,
+        detail: roleCheck.detail,
+      });
+    }
+
     const { error } = await supabase.from("users").insert([payload]);
 
     if (error) {
-      return res
-        .status(400)
-        .json({ message: "Gagal menambah data", detail: error.message });
+      return res.status(400).json({
+        message: "Gagal menambah data",
+        detail: error.message,
+      });
     }
 
     res.status(201).json({ message: "Karyawan berhasil ditambahkan" });
   } catch (err) {
-    res
-      .status(500)
-      .json({ message: "Gagal menambah karyawan", detail: err.message });
+    res.status(500).json({
+      message: "Gagal menambah karyawan",
+      detail: err.message,
+    });
   }
 });
 
@@ -412,28 +594,75 @@ app.put("/api/karyawan/:id", requireRole("hrd"), async (req, res) => {
   try {
     const payload = sanitizeUserPayload(req.body);
 
+    const roleCheck = await validateUserRoleRules(payload, req.params.id);
+
+    if (!roleCheck.valid) {
+      return res.status(roleCheck.status || 400).json({
+        message: roleCheck.message,
+        detail: roleCheck.detail,
+      });
+    }
+
     const { error } = await supabase
       .from("users")
       .update(payload)
       .eq("id", req.params.id);
 
     if (error) {
-      return res
-        .status(400)
-        .json({ message: "Gagal mengubah data", detail: error.message });
+      return res.status(400).json({
+        message: "Gagal mengubah data",
+        detail: error.message,
+      });
     }
 
     res.status(200).json({ message: "Data berhasil diubah" });
   } catch (err) {
-    res
-      .status(500)
-      .json({ message: "Gagal mengubah data", detail: err.message });
+    res.status(500).json({
+      message: "Gagal mengubah data",
+      detail: err.message,
+    });
   }
 });
 
 app.put("/api/karyawan/:id/status", requireRole("hrd"), async (req, res) => {
   try {
     const { status } = req.body;
+
+    if (!VALID_USER_STATUSES.includes(status)) {
+      return res.status(400).json({
+        message: "Status karyawan tidak valid.",
+        detail: "Status hanya boleh Aktif atau Nonaktif.",
+      });
+    }
+
+    const { data: existingUser, error: existingError } = await supabase
+      .from("users")
+      .select("id, role, cabang_id")
+      .eq("id", req.params.id)
+      .single();
+
+    if (existingError || !existingUser) {
+      return res.status(404).json({
+        message: "Data karyawan tidak ditemukan.",
+        detail: existingError?.message,
+      });
+    }
+
+    const roleCheck = await validateUserRoleRules(
+      {
+        role: existingUser.role,
+        cabang_id: existingUser.cabang_id,
+        status,
+      },
+      req.params.id,
+    );
+
+    if (!roleCheck.valid) {
+      return res.status(roleCheck.status || 400).json({
+        message: roleCheck.message,
+        detail: roleCheck.detail,
+      });
+    }
 
     const { error } = await supabase
       .from("users")
@@ -442,11 +671,14 @@ app.put("/api/karyawan/:id/status", requireRole("hrd"), async (req, res) => {
 
     if (error) throw error;
 
-    res
-      .status(200)
-      .json({ message: `Status berhasil diubah menjadi ${status}` });
+    res.status(200).json({
+      message: `Status berhasil diubah menjadi ${status}`,
+    });
   } catch (err) {
-    res.status(500).json({ message: "Gagal mengubah status karyawan" });
+    res.status(500).json({
+      message: "Gagal mengubah status karyawan",
+      detail: err.message,
+    });
   }
 });
 
@@ -473,11 +705,18 @@ app.post(
     const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
 
     try {
-      const { data: user } = await supabase
+      const { data: user, error: userError } = await supabase
         .from("users")
         .select("cabang_id")
         .eq("id", targetUserId)
         .single();
+
+      if (userError || !user) {
+        return res.status(404).json({
+          message: "Data user tidak ditemukan.",
+          detail: userError?.message,
+        });
+      }
 
       const { data: branch } = await supabase
         .from("cabang")
@@ -494,9 +733,9 @@ app.post(
 
       if (tipe_absen === "Masuk") {
         if (existingAttendance?.waktu_masuk) {
-          return res
-            .status(400)
-            .json({ message: "Anda sudah melakukan Absen Masuk hari ini." });
+          return res.status(400).json({
+            message: "Anda sudah melakukan Absen Masuk hari ini.",
+          });
         }
 
         let minutesLate = 0;
@@ -505,8 +744,10 @@ app.post(
           const targetTime = isWeekend
             ? branch.jam_masuk_weekend
             : branch.jam_masuk_weekday;
+
           const tolerance = branch.keterlambatan || 0;
           const diff = calculateMinutesDifference(targetTime, waktu);
+
           if (diff > tolerance) minutesLate = diff;
         }
 
@@ -524,15 +765,15 @@ app.post(
         if (error) throw error;
       } else if (tipe_absen === "Istirahat") {
         if (!existingAttendance) {
-          return res
-            .status(400)
-            .json({ message: "Anda belum Absen Masuk hari ini." });
+          return res.status(400).json({
+            message: "Anda belum Absen Masuk hari ini.",
+          });
         }
 
         if (existingAttendance.waktu_istirahat_mulai) {
-          return res
-            .status(400)
-            .json({ message: "Jadwal istirahat sudah diatur sebelumnya." });
+          return res.status(400).json({
+            message: "Jadwal istirahat sudah diatur sebelumnya.",
+          });
         }
 
         const { error } = await supabase
@@ -543,21 +784,23 @@ app.post(
         if (error) throw error;
       } else if (tipe_absen === "Pulang") {
         if (!existingAttendance?.waktu_masuk) {
-          return res
-            .status(400)
-            .json({ message: "Anda belum Absen Masuk hari ini." });
+          return res.status(400).json({
+            message: "Anda belum Absen Masuk hari ini.",
+          });
         }
 
         if (existingAttendance.waktu_pulang) {
-          return res
-            .status(400)
-            .json({ message: "Anda sudah Absen Pulang hari ini." });
+          return res.status(400).json({
+            message: "Anda sudah Absen Pulang hari ini.",
+          });
         }
 
         let overtimeMinutes = 0;
 
         if (branch) {
-          if (!existingAttendance.waktu_istirahat_mulai) overtimeMinutes += 180;
+          if (!existingAttendance.waktu_istirahat_mulai) {
+            overtimeMinutes += 180;
+          }
 
           const overtimeStart = branch.jam_mulai_lembur || "18:00:00";
           const overtimeEnd = branch.jam_selesai_lembur || "20:00:00";
@@ -568,6 +811,7 @@ app.post(
               overtimeStart,
               overtimeEnd,
             );
+
             overtimeMinutes +=
               overtimeDiff >= maxOvertime ? maxOvertime : overtimeDiff;
           }
@@ -584,16 +828,19 @@ app.post(
 
         if (error) throw error;
       } else {
-        return res.status(400).json({ message: "Tipe absen tidak valid." });
+        return res.status(400).json({
+          message: "Tipe absen tidak valid.",
+        });
       }
 
-      res
-        .status(200)
-        .json({ message: `Absen ${tipe_absen} berhasil dicatat!` });
+      res.status(200).json({
+        message: `Absen ${tipe_absen} berhasil dicatat!`,
+      });
     } catch (error) {
-      res
-        .status(500)
-        .json({ message: "Gagal memproses absensi.", detail: error.message });
+      res.status(500).json({
+        message: "Gagal memproses absensi.",
+        detail: error.message,
+      });
     }
   },
 );
@@ -605,11 +852,18 @@ app.post("/api/absensi/manual", requireRole("hrd"), async (req, res) => {
     let minutesLate = 0;
     let overtimeMinutes = 0;
 
-    const { data: user } = await supabase
+    const { data: user, error: userError } = await supabase
       .from("users")
       .select("cabang_id")
       .eq("id", user_id)
       .single();
+
+    if (userError || !user) {
+      return res.status(404).json({
+        message: "Data karyawan tidak ditemukan.",
+        detail: userError?.message,
+      });
+    }
 
     const { data: branch } = await supabase
       .from("cabang")
@@ -620,16 +874,22 @@ app.post("/api/absensi/manual", requireRole("hrd"), async (req, res) => {
     if (branch && waktu_masuk) {
       const date = new Date(tanggal);
       const isWeekend = date.getDay() === 0 || date.getDay() === 6;
+
       const targetTime = isWeekend
         ? branch.jam_masuk_weekend
         : branch.jam_masuk_weekday;
+
       const diff = calculateMinutesDifference(targetTime, waktu_masuk);
-      if (diff > (branch.keterlambatan || 0)) minutesLate = diff;
+
+      if (diff > (branch.keterlambatan || 0)) {
+        minutesLate = diff;
+      }
     }
 
     if (branch && waktu_pulang) {
       const overtimeStart = branch.jam_mulai_lembur || "18:00:00";
       const overtimeEnd = branch.jam_selesai_lembur || "20:00:00";
+
       const overtimeDiff = calculateMinutesDifference(
         overtimeStart,
         waktu_pulang,
@@ -640,6 +900,7 @@ app.post("/api/absensi/manual", requireRole("hrd"), async (req, res) => {
           overtimeStart,
           overtimeEnd,
         );
+
         overtimeMinutes =
           overtimeDiff >= maxOvertime ? maxOvertime : overtimeDiff;
       }
@@ -653,7 +914,7 @@ app.post("/api/absensi/manual", requireRole("hrd"), async (req, res) => {
       .single();
 
     if (existingAttendance) {
-      await supabase
+      const { error } = await supabase
         .from("absensi")
         .update({
           waktu_masuk: waktu_masuk || existingAttendance.waktu_masuk,
@@ -668,8 +929,10 @@ app.post("/api/absensi/manual", requireRole("hrd"), async (req, res) => {
             : existingAttendance.menit_lembur,
         })
         .eq("id", existingAttendance.id);
+
+      if (error) throw error;
     } else {
-      await supabase.from("absensi").insert([
+      const { error } = await supabase.from("absensi").insert([
         {
           user_id,
           tanggal,
@@ -682,11 +945,18 @@ app.post("/api/absensi/manual", requireRole("hrd"), async (req, res) => {
           menit_lembur: overtimeMinutes,
         },
       ]);
+
+      if (error) throw error;
     }
 
-    res.status(200).json({ message: "Absensi manual berhasil disimpan" });
+    res.status(200).json({
+      message: "Absensi manual berhasil disimpan",
+    });
   } catch (err) {
-    res.status(500).json({ message: "Gagal menyimpan absensi manual" });
+    res.status(500).json({
+      message: "Gagal menyimpan absensi manual",
+      detail: err.message,
+    });
   }
 });
 
@@ -698,41 +968,28 @@ app.get(
 
     try {
       if (req.user.role === "karyawan" && userId !== req.user.id) {
-        return res
-          .status(403)
-          .json({ message: "Tidak boleh melihat riwayat orang lain." });
+        return res.status(403).json({
+          message: "Tidak boleh melihat riwayat orang lain.",
+        });
       }
 
       if (req.user.role === "managerCabang") {
-  const { data: subBranches, error: subBranchError } = await supabase
-    .from("cabang")
-    .select("id")
-    .eq("parent_id", req.user.cabang_id);
+        const allowedCabangIds = await getAllowedCabangIdsForManager(
+          req.user.cabang_id,
+        );
 
-  if (subBranchError) {
-    return res.status(500).json({
-      message: "Gagal mengambil sub-cabang",
-      detail: subBranchError.message,
-    });
-  }
+        const { data: targetUser } = await supabase
+          .from("users")
+          .select("cabang_id")
+          .eq("id", userId)
+          .single();
 
-  const allowedCabangIds = [
-    req.user.cabang_id,
-    ...(subBranches || []).map((branch) => branch.id),
-  ];
-
-  const { data: targetUser } = await supabase
-    .from("users")
-    .select("cabang_id")
-    .eq("id", userId)
-    .single();
-
-  if (!targetUser || !allowedCabangIds.includes(targetUser.cabang_id)) {
-    return res.status(403).json({
-      message: "Manager tidak boleh melihat riwayat cabang lain.",
-    });
-  }
-}
+        if (!targetUser || !allowedCabangIds.includes(targetUser.cabang_id)) {
+          return res.status(403).json({
+            message: "Manager tidak boleh melihat riwayat cabang lain.",
+          });
+        }
+      }
 
       const { data: user } = await supabase
         .from("users")
@@ -754,10 +1011,12 @@ app.get(
 
       const { dateObject: todayObj, dateString: todayStr } =
         getIndonesianTime();
+
       const startDate = new Date(todayObj);
       startDate.setDate(todayObj.getDate() - 30);
 
       const syntheticAlpha = [];
+
       const isPusat =
         user?.cabang?.nama?.toLowerCase().includes("amaga") ||
         user?.cabang?.nama?.toLowerCase().includes("pusat") ||
@@ -776,6 +1035,7 @@ app.get(
         const hasAttendance = (attendanceList || []).some(
           (record) => record.tanggal === dateKey,
         );
+
         const hasPermission = (permissionList || []).some(
           (perm) =>
             perm.status_approval === "Disetujui" &&
@@ -801,7 +1061,10 @@ app.get(
         perizinan: permissionList || [],
       });
     } catch (err) {
-      res.status(500).json({ message: "Gagal mengambil riwayat" });
+      res.status(500).json({
+        message: "Gagal mengambil riwayat",
+        detail: err.message,
+      });
     }
   },
 );
@@ -815,10 +1078,7 @@ app.post(
 
       const payload = {
         user_id:
-          req.user.role === "hrd" && body.user_id
-            ? body.user_id
-            : req.user.id,
-
+          req.user.role === "hrd" && body.user_id ? body.user_id : req.user.id,
         kategori: body.kategori,
         jenis_izin: body.jenis_izin || null,
         tanggal_mulai: body.tanggal_mulai || null,
@@ -866,23 +1126,44 @@ app.post(
   },
 );
 
-app.get("/api/perizinan/all", requireRole("hrd"), async (req, res) => {
-  const { data, error } = await supabase
-    .from("perizinan")
-    .select(
-      "*, users(id, nama, nik, role, jabatan, divisi, no_telp, cabang_id, cabang(nama))",
-    )
-    .order("created_at", { ascending: false });
+app.get(
+  "/api/perizinan/all",
+  requireRole("hrd", "managerCabang"),
+  async (req, res) => {
+    try {
+      let query = supabase
+        .from("perizinan")
+        .select(
+          "*, users!inner(id, nama, nik, role, jabatan, divisi, no_telp, cabang_id, cabang(nama))",
+        )
+        .order("created_at", { ascending: false });
 
-  if (error) {
-    return res.status(500).json({
-      message: "Gagal mengambil perizinan",
-      detail: error.message,
-    });
-  }
+      if (req.user.role === "managerCabang") {
+        const allowedCabangIds = await getAllowedCabangIdsForManager(
+          req.user.cabang_id,
+        );
 
-  res.status(200).json(data || []);
-});
+        query = query.in("users.cabang_id", allowedCabangIds);
+      }
+
+      const { data, error } = await query;
+
+      if (error) {
+        return res.status(500).json({
+          message: "Gagal mengambil perizinan",
+          detail: error.message,
+        });
+      }
+
+      res.status(200).json(data || []);
+    } catch (err) {
+      res.status(500).json({
+        message: "Gagal mengambil perizinan",
+        detail: err.message,
+      });
+    }
+  },
+);
 
 app.put(
   "/api/perizinan/:id/status",
@@ -925,22 +1206,9 @@ app.put(
       }
 
       if (req.user.role === "managerCabang") {
-        const { data: subBranches, error: subBranchError } = await supabase
-          .from("cabang")
-          .select("id")
-          .eq("parent_id", req.user.cabang_id);
-
-        if (subBranchError) {
-          return res.status(500).json({
-            message: "Gagal mengambil sub-cabang.",
-            detail: subBranchError.message,
-          });
-        }
-
-        const allowedCabangIds = [
+        const allowedCabangIds = await getAllowedCabangIdsForManager(
           req.user.cabang_id,
-          ...(subBranches || []).map((branch) => branch.id),
-        ];
+        );
 
         if (!allowedCabangIds.includes(pemohon.cabang_id)) {
           return res.status(403).json({
@@ -981,22 +1249,9 @@ app.get(
 
     try {
       if (req.user.role === "managerCabang") {
-        const { data: subBranches, error: subBranchError } = await supabase
-          .from("cabang")
-          .select("id")
-          .eq("parent_id", req.user.cabang_id);
-
-        if (subBranchError) {
-          return res.status(500).json({
-            message: "Gagal mengambil sub-cabang",
-            detail: subBranchError.message,
-          });
-        }
-
-        const allowedCabangIds = [
+        const allowedCabangIds = await getAllowedCabangIdsForManager(
           req.user.cabang_id,
-          ...(subBranches || []).map((branch) => branch.id),
-        ];
+        );
 
         if (!allowedCabangIds.includes(cabangParam)) {
           return res.status(403).json({
@@ -1035,7 +1290,8 @@ app.get(
   requireRole("hrd", "managerCabang"),
   async (req, res) => {
     const { start_date, end_date } = req.query;
-    const { dateObject: todayObj, dateString: todayStr } = getIndonesianTime();
+    const { dateObject: todayObj, dateString: todayStr } =
+      getIndonesianTime();
 
     let startStr = start_date;
     let endStr = end_date;
@@ -1078,54 +1334,47 @@ app.get(
         dateStr: runner.toISOString().split("T")[0],
         dayOfWeek: runner.getDay(),
       });
+
       runner.setDate(runner.getDate() + 1);
     }
 
     try {
       let userQuery = supabase
-  .from("users")
-  .select("id, nama, nik, jabatan, divisi, no_telp, cabang_id, cabang(*)");
+        .from("users")
+        .select("id, nama, nik, jabatan, divisi, no_telp, cabang_id, cabang(*)");
 
       if (req.user.role === "managerCabang") {
-  const { data: subBranches, error: subBranchError } = await supabase
-    .from("cabang")
-    .select("id")
-    .eq("parent_id", req.user.cabang_id);
+        const allowedCabangIds = await getAllowedCabangIdsForManager(
+          req.user.cabang_id,
+        );
 
-  if (subBranchError) {
-    return res.status(500).json({
-      message: "Gagal mengambil sub-cabang",
-      detail: subBranchError.message,
-    });
-  }
-
-  const allowedCabangIds = [
-    req.user.cabang_id,
-    ...(subBranches || []).map((branch) => branch.id),
-  ];
-
-  userQuery = userQuery.in("cabang_id", allowedCabangIds);
-}
+        userQuery = userQuery.in("cabang_id", allowedCabangIds);
+      }
 
       const { data: users, error: userError } = await userQuery;
+
       if (userError) throw userError;
 
       const userIds = (users || []).map((user) => user.id);
 
-      const { data: attendanceData } = await supabase
-  .from("absensi")
-  .select("*")
-  .in("user_id", userIds)
-  .gte("tanggal", startStr)
-  .lte("tanggal", endStr);
+      if (userIds.length === 0) {
+        return res.status(200).json([]);
+      }
 
-const { data: permissionData } = await supabase
-  .from("perizinan")
-  .select("*")
-  .in("user_id", userIds)
-  .eq("status_approval", "Disetujui")
-  .lte("tanggal_mulai", endStr)
-  .gte("tanggal_selesai", startStr);
+      const { data: attendanceData } = await supabase
+        .from("absensi")
+        .select("*")
+        .in("user_id", userIds)
+        .gte("tanggal", startStr)
+        .lte("tanggal", endStr);
+
+      const { data: permissionData } = await supabase
+        .from("perizinan")
+        .select("*")
+        .in("user_id", userIds)
+        .eq("status_approval", "Disetujui")
+        .lte("tanggal_mulai", endStr)
+        .gte("tanggal_selesai", startStr);
 
       const report = (users || []).map((user) => {
         const isPusat =
@@ -1151,11 +1400,14 @@ const { data: permissionData } = await supabase
           if (!record.menit_terlambat && user.cabang && record.waktu_masuk) {
             const d = new Date(record.tanggal);
             const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+
             const target = isWeekend
               ? user.cabang.jam_masuk_weekend
               : user.cabang.jam_masuk_weekday;
+
             const tolerance = user.cabang.keterlambatan || 0;
             const diff = calculateMinutesDifference(target, record.waktu_masuk);
+
             if (diff > tolerance) record.menit_terlambat = diff;
           }
         });
@@ -1163,10 +1415,12 @@ const { data: permissionData } = await supabase
         const lateCount = userAttendance.filter(
           (a) => a.menit_terlambat > 0,
         ).length;
+
         const totalOvertimeMinutes = userAttendance.reduce(
           (sum, a) => sum + (a.menit_lembur || 0),
           0,
         );
+
         const totalOvertimeHours = Math.floor(totalOvertimeMinutes / 60);
 
         let alphaCount = 0;
@@ -1179,6 +1433,7 @@ const { data: permissionData } = await supabase
           const hasAttendance = userAttendance.some(
             (a) => a.tanggal === d.dateStr,
           );
+
           const hasPermission = userPermissions.some(
             (p) =>
               d.dateStr >= p.tanggal_mulai && d.dateStr <= p.tanggal_selesai,
@@ -1194,13 +1449,13 @@ const { data: permissionData } = await supabase
         });
 
         return {
-  id: user.id,
-  nama: user.nama,
-  nik: user.nik,
-  jabatan: user.jabatan || "-",
-  divisi: user.divisi || "-",
-  noTelp: user.no_telp || "-",
-  cabang: user.cabang?.nama || "-",
+          id: user.id,
+          nama: user.nama,
+          nik: user.nik,
+          jabatan: user.jabatan || "-",
+          divisi: user.divisi || "-",
+          noTelp: user.no_telp || "-",
+          cabang: user.cabang?.nama || "-",
           hadirApp: userAttendance
             .filter((a) => !a.is_manual_masuk)
             .length.toString(),
@@ -1230,9 +1485,10 @@ const { data: permissionData } = await supabase
 
       res.status(200).json(report);
     } catch (err) {
-      res
-        .status(500)
-        .json({ message: "Gagal mengambil laporan", detail: err.message });
+      res.status(500).json({
+        message: "Gagal mengambil laporan",
+        detail: err.message,
+      });
     }
   },
 );
@@ -1249,37 +1505,31 @@ app.get(
         .select("id, cabang_id, cabang(nama)");
 
       if (req.user.role === "managerCabang") {
-  const { data: subBranches, error: subBranchError } = await supabase
-    .from("cabang")
-    .select("id")
-    .eq("parent_id", req.user.cabang_id);
+        const allowedCabangIds = await getAllowedCabangIdsForManager(
+          req.user.cabang_id,
+        );
 
-  if (subBranchError) {
-    return res.status(500).json({
-      message: "Gagal mengambil sub-cabang",
-      detail: subBranchError.message,
-    });
-  }
-
-  const allowedCabangIds = [
-    req.user.cabang_id,
-    ...(subBranches || []).map((branch) => branch.id),
-  ];
-
-  userQuery = userQuery.in("cabang_id", allowedCabangIds);
-} else if (
-  req.user.role === "hrd" &&
-  sub_cabang &&
-  sub_cabang !== "Semua Cabang"
-) {
-  userQuery = userQuery.eq("cabang.nama", sub_cabang);
-}
+        userQuery = userQuery.in("cabang_id", allowedCabangIds);
+      } else if (
+        req.user.role === "hrd" &&
+        sub_cabang &&
+        sub_cabang !== "Semua Cabang"
+      ) {
+        userQuery = userQuery.eq("cabang.nama", sub_cabang);
+      }
 
       const { data: allUsers, error: userError } = await userQuery;
+
       if (userError) throw userError;
 
+      const allBranchLabels = [
+        "Semua Cabang",
+        "Semua Sub-Cabang",
+        "Semua Cabang Saya",
+      ];
+
       const users =
-        sub_cabang && !["Semua Cabang", "Semua Sub-Cabang"].includes(sub_cabang)
+        sub_cabang && !allBranchLabels.includes(sub_cabang)
           ? (allUsers || []).filter((u) => u.cabang?.nama === sub_cabang)
           : allUsers || [];
 
@@ -1374,9 +1624,11 @@ app.get(
         if (!record.menit_terlambat && user?.cabang && record.waktu_masuk) {
           const d = new Date(record.tanggal);
           const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+
           const target = isWeekend
             ? user.cabang.jam_masuk_weekend
             : user.cabang.jam_masuk_weekday;
+
           const diff = calculateMinutesDifference(target, record.waktu_masuk);
 
           if (diff > (user.cabang.keterlambatan || 0)) {
@@ -1388,7 +1640,10 @@ app.get(
         const chartIdx = dayIdx === 0 ? 6 : dayIdx - 1;
 
         chart.hadir[chartIdx] += 1;
-        if (record.menit_terlambat > 0) chart.terlambat[chartIdx] += 1;
+
+        if (record.menit_terlambat > 0) {
+          chart.terlambat[chartIdx] += 1;
+        }
       });
 
       const totals = {
@@ -1409,9 +1664,10 @@ app.get(
 
       res.status(200).json({ totals, chart });
     } catch (err) {
-      res
-        .status(500)
-        .json({ message: "Gagal mengambil statistik", detail: err.message });
+      res.status(500).json({
+        message: "Gagal mengambil statistik",
+        detail: err.message,
+      });
     }
   },
 );
@@ -1421,9 +1677,10 @@ app.delete("/api/cleanup-fotos", requireRole("hrd"), async (req, res) => {
     const result = await cleanupOldAttendancePhotos();
     res.status(200).json(result);
   } catch (err) {
-    res
-      .status(500)
-      .json({ message: "Gagal membersihkan foto", detail: err.message });
+    res.status(500).json({
+      message: "Gagal membersihkan foto",
+      detail: err.message,
+    });
   }
 });
 
