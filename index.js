@@ -67,6 +67,8 @@ const requireRole = (...allowedRoles) => {
   };
 };
 
+// Tetap 1 tingkat sub-cabang sesuai permintaan:
+// Manager Cabang A hanya mendapat cabang A + sub-cabang langsung A1/A2/A3.
 const getAllowedCabangIdsForManager = async (managerCabangId) => {
   if (!managerCabangId) return [];
 
@@ -201,7 +203,7 @@ const validateUserRoleRules = async (payload, currentUserId = null) => {
     if (error) throw error;
 
     const otherActiveHrd = (existingHrd || []).filter(
-      (item) => item.id !== currentUserId,
+      (item) => item.id !== currentUserId
     );
 
     if ((payload.status || "Aktif") === "Aktif" && otherActiveHrd.length > 0) {
@@ -256,7 +258,7 @@ const validateUserRoleRules = async (payload, currentUserId = null) => {
     if (managerError) throw managerError;
 
     const otherManager = (existingManager || []).filter(
-      (item) => item.id !== currentUserId,
+      (item) => item.id !== currentUserId
     );
 
     if ((payload.status || "Aktif") === "Aktif" && otherManager.length > 0) {
@@ -422,7 +424,7 @@ app.get(
 
       if (req.user.role === "managerCabang") {
         const allowedCabangIds = await getAllowedCabangIdsForManager(
-          req.user.cabang_id,
+          req.user.cabang_id
         );
 
         query = query.in("id", allowedCabangIds);
@@ -444,7 +446,7 @@ app.get(
         detail: err.message,
       });
     }
-  },
+  }
 );
 
 app.post("/api/cabang", requireRole("hrd"), async (req, res) => {
@@ -529,10 +531,12 @@ app.get(
 
       if (req.user.role === "managerCabang") {
         const allowedCabangIds = await getAllowedCabangIdsForManager(
-          req.user.cabang_id,
+          req.user.cabang_id
         );
 
-        query = query.in("cabang_id", allowedCabangIds);
+        query = query
+          .in("cabang_id", allowedCabangIds)
+          .neq("role", "hrd");
       }
 
       const { data, error } = await query;
@@ -556,7 +560,7 @@ app.get(
         detail: err.message,
       });
     }
-  },
+  }
 );
 
 app.post("/api/karyawan", requireRole("hrd"), async (req, res) => {
@@ -654,7 +658,7 @@ app.put("/api/karyawan/:id/status", requireRole("hrd"), async (req, res) => {
         cabang_id: existingUser.cabang_id,
         status,
       },
-      req.params.id,
+      req.params.id
     );
 
     if (!roleCheck.valid) {
@@ -809,7 +813,7 @@ app.post(
           if (overtimeDiff > 0) {
             const maxOvertime = calculateMinutesDifference(
               overtimeStart,
-              overtimeEnd,
+              overtimeEnd
             );
 
             overtimeMinutes +=
@@ -842,7 +846,7 @@ app.post(
         detail: error.message,
       });
     }
-  },
+  }
 );
 
 app.post("/api/absensi/manual", requireRole("hrd"), async (req, res) => {
@@ -892,13 +896,13 @@ app.post("/api/absensi/manual", requireRole("hrd"), async (req, res) => {
 
       const overtimeDiff = calculateMinutesDifference(
         overtimeStart,
-        waktu_pulang,
+        waktu_pulang
       );
 
       if (overtimeDiff > 0) {
         const maxOvertime = calculateMinutesDifference(
           overtimeStart,
-          overtimeEnd,
+          overtimeEnd
         );
 
         overtimeMinutes =
@@ -975,16 +979,22 @@ app.get(
 
       if (req.user.role === "managerCabang") {
         const allowedCabangIds = await getAllowedCabangIdsForManager(
-          req.user.cabang_id,
+          req.user.cabang_id
         );
 
         const { data: targetUser } = await supabase
           .from("users")
-          .select("cabang_id")
+          .select("cabang_id, role")
           .eq("id", userId)
           .single();
 
-        if (!targetUser || !allowedCabangIds.includes(targetUser.cabang_id)) {
+        if (!targetUser || targetUser.role === "hrd") {
+          return res.status(403).json({
+            message: "Manager tidak boleh melihat riwayat HRD.",
+          });
+        }
+
+        if (!allowedCabangIds.includes(targetUser.cabang_id)) {
           return res.status(403).json({
             message: "Manager tidak boleh melihat riwayat cabang lain.",
           });
@@ -1033,14 +1043,14 @@ app.get(
         if (isPusat && dayOfWeek === 0) continue;
 
         const hasAttendance = (attendanceList || []).some(
-          (record) => record.tanggal === dateKey,
+          (record) => record.tanggal === dateKey
         );
 
         const hasPermission = (permissionList || []).some(
           (perm) =>
             perm.status_approval === "Disetujui" &&
             dateKey >= perm.tanggal_mulai &&
-            dateKey <= perm.tanggal_selesai,
+            dateKey <= perm.tanggal_selesai
         );
 
         if (!hasAttendance && !hasPermission) {
@@ -1066,7 +1076,7 @@ app.get(
         detail: err.message,
       });
     }
-  },
+  }
 );
 
 app.post(
@@ -1123,7 +1133,7 @@ app.post(
         detail: err.message,
       });
     }
-  },
+  }
 );
 
 app.get(
@@ -1134,16 +1144,18 @@ app.get(
       let query = supabase
         .from("perizinan")
         .select(
-          "*, users!inner(id, nama, nik, role, jabatan, divisi, no_telp, cabang_id, cabang(nama))",
+          "*, users!inner(id, nama, nik, role, jabatan, divisi, no_telp, cabang_id, cabang(nama))"
         )
         .order("created_at", { ascending: false });
 
       if (req.user.role === "managerCabang") {
         const allowedCabangIds = await getAllowedCabangIdsForManager(
-          req.user.cabang_id,
+          req.user.cabang_id
         );
 
-        query = query.in("users.cabang_id", allowedCabangIds);
+        query = query
+          .in("users.cabang_id", allowedCabangIds)
+          .neq("users.role", "hrd");
       }
 
       const { data, error } = await query;
@@ -1162,7 +1174,7 @@ app.get(
         detail: err.message,
       });
     }
-  },
+  }
 );
 
 app.put(
@@ -1194,7 +1206,7 @@ app.put(
 
       const { data: pemohon, error: pemohonError } = await supabase
         .from("users")
-        .select("id, cabang_id")
+        .select("id, cabang_id, role")
         .eq("id", izin.user_id)
         .single();
 
@@ -1206,8 +1218,14 @@ app.put(
       }
 
       if (req.user.role === "managerCabang") {
+        if (pemohon.role === "hrd") {
+          return res.status(403).json({
+            message: "Manager tidak boleh memproses perizinan HRD.",
+          });
+        }
+
         const allowedCabangIds = await getAllowedCabangIdsForManager(
-          req.user.cabang_id,
+          req.user.cabang_id
         );
 
         if (!allowedCabangIds.includes(pemohon.cabang_id)) {
@@ -1238,7 +1256,7 @@ app.put(
         detail: err.message,
       });
     }
-  },
+  }
 );
 
 app.get(
@@ -1250,7 +1268,7 @@ app.get(
     try {
       if (req.user.role === "managerCabang") {
         const allowedCabangIds = await getAllowedCabangIdsForManager(
-          req.user.cabang_id,
+          req.user.cabang_id
         );
 
         if (!allowedCabangIds.includes(cabangParam)) {
@@ -1260,13 +1278,19 @@ app.get(
         }
       }
 
-      const { data, error } = await supabase
+      let query = supabase
         .from("perizinan")
         .select(
-          "*, users!inner(id, nama, nik, role, jabatan, divisi, cabang_id, cabang(nama))",
+          "*, users!inner(id, nama, nik, role, jabatan, divisi, cabang_id, cabang(nama))"
         )
         .eq("users.cabang_id", cabangParam)
         .order("created_at", { ascending: false });
+
+      if (req.user.role === "managerCabang") {
+        query = query.neq("users.role", "hrd");
+      }
+
+      const { data, error } = await query;
 
       if (error) {
         return res.status(500).json({
@@ -1282,7 +1306,7 @@ app.get(
         detail: err.message,
       });
     }
-  },
+  }
 );
 
 app.get(
@@ -1341,14 +1365,16 @@ app.get(
     try {
       let userQuery = supabase
         .from("users")
-        .select("id, nama, nik, jabatan, divisi, no_telp, cabang_id, cabang(*)");
+        .select("id, nama, nik, role, jabatan, divisi, no_telp, cabang_id, cabang(*)");
 
       if (req.user.role === "managerCabang") {
         const allowedCabangIds = await getAllowedCabangIdsForManager(
-          req.user.cabang_id,
+          req.user.cabang_id
         );
 
-        userQuery = userQuery.in("cabang_id", allowedCabangIds);
+        userQuery = userQuery
+          .in("cabang_id", allowedCabangIds)
+          .neq("role", "hrd");
       }
 
       const { data: users, error: userError } = await userQuery;
@@ -1386,14 +1412,14 @@ app.get(
           (a) =>
             a.user_id === user.id &&
             a.tanggal >= startStr &&
-            a.tanggal <= endStr,
+            a.tanggal <= endStr
         );
 
         const userPermissions = (permissionData || []).filter(
           (p) =>
             p.user_id === user.id &&
             p.tanggal_selesai >= startStr &&
-            p.tanggal_mulai <= endStr,
+            p.tanggal_mulai <= endStr
         );
 
         userAttendance.forEach((record) => {
@@ -1413,12 +1439,12 @@ app.get(
         });
 
         const lateCount = userAttendance.filter(
-          (a) => a.menit_terlambat > 0,
+          (a) => a.menit_terlambat > 0
         ).length;
 
         const totalOvertimeMinutes = userAttendance.reduce(
           (sum, a) => sum + (a.menit_lembur || 0),
-          0,
+          0
         );
 
         const totalOvertimeHours = Math.floor(totalOvertimeMinutes / 60);
@@ -1431,12 +1457,12 @@ app.get(
           if (isPusat && d.dayOfWeek === 0) return;
 
           const hasAttendance = userAttendance.some(
-            (a) => a.tanggal === d.dateStr,
+            (a) => a.tanggal === d.dateStr
           );
 
           const hasPermission = userPermissions.some(
             (p) =>
-              d.dateStr >= p.tanggal_mulai && d.dateStr <= p.tanggal_selesai,
+              d.dateStr >= p.tanggal_mulai && d.dateStr <= p.tanggal_selesai
           );
 
           if (!hasAttendance && !hasPermission) {
@@ -1490,7 +1516,7 @@ app.get(
         detail: err.message,
       });
     }
-  },
+  }
 );
 
 app.get(
@@ -1502,14 +1528,16 @@ app.get(
     try {
       let userQuery = supabase
         .from("users")
-        .select("id, cabang_id, cabang(nama)");
+        .select("id, role, cabang_id, cabang(nama)");
 
       if (req.user.role === "managerCabang") {
         const allowedCabangIds = await getAllowedCabangIdsForManager(
-          req.user.cabang_id,
+          req.user.cabang_id
         );
 
-        userQuery = userQuery.in("cabang_id", allowedCabangIds);
+        userQuery = userQuery
+          .in("cabang_id", allowedCabangIds)
+          .neq("role", "hrd");
       } else if (
         req.user.role === "hrd" &&
         sub_cabang &&
@@ -1601,14 +1629,14 @@ app.get(
           if (isPusat && dayIndex === 0) return;
 
           const hasAttendance = (attendanceRecords || []).some(
-            (a) => a.user_id === user.id && a.tanggal === dateKey,
+            (a) => a.user_id === user.id && a.tanggal === dateKey
           );
 
           const hasPermission = (approvedPermissions || []).some(
             (p) =>
               p.user_id === user.id &&
               dateKey >= p.tanggal_mulai &&
-              dateKey <= p.tanggal_selesai,
+              dateKey <= p.tanggal_selesai
           );
 
           if (!hasAttendance && !hasPermission) {
@@ -1649,15 +1677,15 @@ app.get(
       const totals = {
         hadir: (attendanceRecords || []).length,
         sakit: (approvedPermissions || []).filter(
-          (p) => p.kategori === "Izin" && p.jenis_izin === "Sakit",
+          (p) => p.kategori === "Izin" && p.jenis_izin === "Sakit"
         ).length,
         izin: (approvedPermissions || []).filter(
-          (p) => p.kategori === "Izin" && p.jenis_izin !== "Sakit",
+          (p) => p.kategori === "Izin" && p.jenis_izin !== "Sakit"
         ).length,
         cuti: (approvedPermissions || []).filter((p) => p.kategori === "Cuti")
           .length,
         terlambat: (attendanceRecords || []).filter(
-          (a) => a.menit_terlambat > 0,
+          (a) => a.menit_terlambat > 0
         ).length,
         alpha: alphaCounter,
       };
@@ -1669,7 +1697,7 @@ app.get(
         detail: err.message,
       });
     }
-  },
+  }
 );
 
 app.delete("/api/cleanup-fotos", requireRole("hrd"), async (req, res) => {
@@ -1697,7 +1725,7 @@ cron.schedule(
   {
     scheduled: true,
     timezone: "Asia/Jakarta",
-  },
+  }
 );
 
 const PORT = process.env.PORT || 3000;
