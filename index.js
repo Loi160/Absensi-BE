@@ -810,22 +810,59 @@ app.post(
   "/api/perizinan",
   requireRole("karyawan", "managerCabang", "hrd"),
   async (req, res) => {
-    const payload = { ...req.body };
+    try {
+      const body = { ...req.body };
 
-    if (req.user.role === "karyawan" || req.user.role === "managerCabang") {
-      payload.user_id = req.user.id;
-    }
+      const payload = {
+        user_id:
+          req.user.role === "hrd" && body.user_id
+            ? body.user_id
+            : req.user.id,
 
-    const { error } = await supabase.from("perizinan").insert([payload]);
+        kategori: body.kategori,
+        jenis_izin: body.jenis_izin || null,
+        tanggal_mulai: body.tanggal_mulai || null,
+        tanggal_selesai: body.tanggal_selesai || body.tanggal_mulai || null,
+        jam_mulai: body.jam_mulai || null,
+        jam_selesai: body.jam_selesai || null,
+        keperluan: body.keperluan || null,
+        kendaraan: body.kendaraan || null,
+        keterangan: body.keterangan || null,
+        bukti_foto: body.bukti_foto || null,
+        status_approval: "Pending",
+      };
 
-    if (error) {
-      return res.status(400).json({
+      if (!["Izin", "Cuti", "FIMTK"].includes(payload.kategori)) {
+        return res.status(400).json({
+          message: "Kategori perizinan tidak valid.",
+          detail: `Kategori diterima: ${payload.kategori}`,
+        });
+      }
+
+      if (!payload.tanggal_mulai || !payload.tanggal_selesai) {
+        return res.status(400).json({
+          message: "Tanggal mulai dan tanggal selesai wajib diisi.",
+        });
+      }
+
+      const { error } = await supabase.from("perizinan").insert([payload]);
+
+      if (error) {
+        return res.status(400).json({
+          message: "Gagal mengirim pengajuan.",
+          detail: error.message,
+        });
+      }
+
+      return res.status(201).json({
+        message: "Pengajuan berhasil dikirim.",
+      });
+    } catch (err) {
+      return res.status(500).json({
         message: "Gagal mengirim pengajuan.",
-        detail: error.message,
+        detail: err.message,
       });
     }
-
-    res.status(201).json({ message: "Pengajuan berhasil dikirim." });
   },
 );
 
@@ -852,15 +889,38 @@ app.put(
   requireRole("hrd", "managerCabang"),
   async (req, res) => {
     try {
+      const { status_approval } = req.body;
+
+      if (!["Pending", "Disetujui", "Ditolak"].includes(status_approval)) {
+        return res.status(400).json({
+          message: "Status approval tidak valid.",
+          detail: `Status diterima: ${status_approval}`,
+        });
+      }
+
       const { data: izin, error: izinError } = await supabase
         .from("perizinan")
-        .select("id, user_id, users(cabang_id)")
+        .select("id, user_id, status_approval")
         .eq("id", req.params.id)
         .single();
 
       if (izinError || !izin) {
         return res.status(404).json({
           message: "Data perizinan tidak ditemukan.",
+          detail: izinError?.message,
+        });
+      }
+
+      const { data: pemohon, error: pemohonError } = await supabase
+        .from("users")
+        .select("id, cabang_id")
+        .eq("id", izin.user_id)
+        .single();
+
+      if (pemohonError || !pemohon) {
+        return res.status(404).json({
+          message: "Data pemohon perizinan tidak ditemukan.",
+          detail: pemohonError?.message,
         });
       }
 
@@ -872,7 +932,7 @@ app.put(
 
         if (subBranchError) {
           return res.status(500).json({
-            message: "Gagal mengambil sub-cabang",
+            message: "Gagal mengambil sub-cabang.",
             detail: subBranchError.message,
           });
         }
@@ -882,24 +942,31 @@ app.put(
           ...(subBranches || []).map((branch) => branch.id),
         ];
 
-        if (!allowedCabangIds.includes(izin.users?.cabang_id)) {
+        if (!allowedCabangIds.includes(pemohon.cabang_id)) {
           return res.status(403).json({
             message: "Manager tidak boleh memproses perizinan cabang lain.",
           });
         }
       }
 
-      const { error } = await supabase
+      const { error: updateError } = await supabase
         .from("perizinan")
-        .update({ status_approval: req.body.status_approval })
+        .update({ status_approval })
         .eq("id", req.params.id);
 
-      if (error) throw error;
+      if (updateError) {
+        return res.status(400).json({
+          message: "Gagal mengubah status perizinan.",
+          detail: updateError.message,
+        });
+      }
 
-      return res.status(200).json({ message: "Berhasil" });
+      return res.status(200).json({
+        message: `Perizinan berhasil di-${status_approval}.`,
+      });
     } catch (err) {
       return res.status(500).json({
-        message: "Gagal mengubah status perizinan",
+        message: "Gagal mengubah status perizinan.",
         detail: err.message,
       });
     }
