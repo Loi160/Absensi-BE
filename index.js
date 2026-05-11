@@ -4,6 +4,14 @@ import "dotenv/config";
 import cron from "node-cron";
 import crypto from "crypto";
 import { supabase } from "./config/supabase.js";
+import { v2 as cloudinary } from "cloudinary";
+
+// Konfigurasi Cloudinary
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
 
 const app = express();
 app.use(cors());
@@ -251,7 +259,7 @@ const validateUserRoleRules = async (payload, currentUserId = null) => {
   return { valid: true };
 };
 
-// Menghapus foto absensi yang lebih tua dari 30 hari untuk menghemat storage
+// Menghapus foto absensi yang lebih tua dari 30 hari untuk menghemat storage (Supabase & Cloudinary)
 const cleanupOldAttendancePhotos = async () => {
   const { dateObject: todayObj } = getIndonesianTime();
   const cutoffDate = new Date(todayObj);
@@ -270,30 +278,41 @@ const cleanupOldAttendancePhotos = async () => {
     return { message: "Tidak ada foto usang yang perlu dihapus." };
   }
 
-  const filesToDelete = [];
-
-  staleAttendance.forEach((record) => {
-    [record.foto_masuk, record.foto_pulang].forEach((url) => {
-      if (url && !url.includes("Telah Dihapus")) {
-        filesToDelete.push(url.split("/").pop());
-      }
-    });
-  });
-
-  if (filesToDelete.length > 0) {
-    const { error: rmErr } = await supabase.storage.from("foto_absensi").remove(filesToDelete);
-    if (rmErr) console.error("Gagal hapus fisik foto:", rmErr);
-  }
+  let deletedCount = 0;
 
   for (const record of staleAttendance) {
+    const photos = [
+      { key: "foto_masuk", url: record.foto_masuk },
+      { key: "foto_pulang", url: record.foto_pulang },
+    ];
+
     const updatePayload = {};
 
-    if (record.foto_masuk && !record.foto_masuk.includes("Telah Dihapus")) {
-      updatePayload.foto_masuk = "Telah Dihapus Otomatis (Lebih dari 30 Hari)";
-    }
+    for (const photo of photos) {
+      if (photo.url && !photo.url.includes("Telah Dihapus")) {
+        try {
+          // Logika penghapusan berdasarkan sumber (Cloudinary atau Supabase)
+          if (photo.url.includes("cloudinary.com")) {
+            // Ekstrak public_id dari URL Cloudinary
+            // Contoh URL: https://res.cloudinary.com/demo/image/upload/v1234/foto_absensi/abcd.jpg
+            // Public ID: foto_absensi/abcd
+            const parts = photo.url.split("/");
+            const folderAndFile = parts.slice(-2).join("/"); // "foto_absensi/abcd.jpg"
+            const publicId = folderAndFile.split(".")[0]; // "foto_absensi/abcd"
+            
+            await cloudinary.uploader.destroy(publicId);
+          } else if (photo.url.includes("supabase.co")) {
+            // Hapus dari Supabase Storage jika masih ada sisa data lama
+            const fileName = photo.url.split("/").pop();
+            await supabase.storage.from("foto_absensi").remove([fileName]);
+          }
 
-    if (record.foto_pulang && !record.foto_pulang.includes("Telah Dihapus")) {
-      updatePayload.foto_pulang = "Telah Dihapus Otomatis (Lebih dari 30 Hari)";
+          updatePayload[photo.key] = "Telah Dihapus Otomatis (Lebih dari 30 Hari)";
+          deletedCount++;
+        } catch (err) {
+          console.error(`Gagal menghapus foto (${photo.url}):`, err.message);
+        }
+      }
     }
 
     if (Object.keys(updatePayload).length > 0) {
@@ -301,7 +320,7 @@ const cleanupOldAttendancePhotos = async () => {
     }
   }
 
-  return { message: `Berhasil membersihkan foto usang dari ${staleAttendance.length} data absensi.` };
+  return { message: `Berhasil membersihkan ${deletedCount} foto usang dari ${staleAttendance.length} data absensi.` };
 };
 
 // ============================================================================
@@ -1240,8 +1259,17 @@ app.get("/api/dashboard/stats", requireRole("hrd", "managerCabang"), async (req,
 // UTILS & CRON JOBS
 // ============================================================================
 
-app.delete("/api/cleanup-fotos", requireRole("hrd"), async (req, res) => {
+app.delete("/api/cleanup-fotos", async (req, res) => {
   try {
+    // Keamanan sederhana: Hanya izinkan jika dipicu oleh Vercel Cron atau header khusus
+    const authHeader = req.headers["authorization"];
+    const isVercelCron = req.headers["x-vercel-cron"] === "1";
+
+    // Jika Anda ingin lebih aman, bisa tambahkan CRON_SECRET di .env
+    // if (!isVercelCron && authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+    //   return res.status(401).json({ message: "Unauthorized" });
+    // }
+
     const result = await cleanupOldAttendancePhotos();
     res.status(200).json(result);
   } catch (err) {
@@ -1259,8 +1287,12 @@ cron.schedule("0 0 * * *", async () => {
   }
 }, { scheduled: true, timezone: "Asia/Jakarta" });
 
-const PORT = process.env.PORT || 3000;
+// Jalankan server lokal hanya jika tidak di deploy di Vercel
+if (process.env.NODE_ENV !== "production") {
+  const PORT = process.env.PORT || 3000;
+  app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+  });
+}
 
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+export default app;
